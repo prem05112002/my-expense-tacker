@@ -1,37 +1,48 @@
-# models.py
-from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey
+from sqlalchemy.sql import func
+from database import Base
 
-db = SQLAlchemy()
+class User(Base):
+    __tablename__ = "users"
 
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    imap_server = db.Column(db.String(120))
-    imap_user = db.Column(db.String(120))
-    imap_password = db.Column(db.String(120))
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    email = Column(String, unique=True, index=True)
     
-    # ⬆️ PHASE 1: Tracks the NEWEST email we have seen (Forward Sync)
-    last_processed_uid = db.Column(db.Integer, default=0)
+    # Credentials
+    imap_server = Column(String, default="imap.gmail.com")
+    imap_user = Column(String)
+    imap_password = Column(String) # In production, this should be encrypted
     
-    # ⬇️ PHASE 2: Tracks the OLDEST email we have seen (Backfill History)
-    min_processed_uid = db.Column(db.Integer, nullable=True) 
+    # Sync Markers
+    last_processed_uid = Column(Integer, default=0)
+    min_processed_uid = Column(Integer, default=None, nullable=True)
 
-class Transaction(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    amount = db.Column(db.Float, nullable=True) 
-    merchant = db.Column(db.String(200))
-    date = db.Column(db.DateTime)
-    category = db.Column(db.String(50), default="Uncategorized")
-    tx_type = db.Column(db.String(10)) 
-    bank_name = db.Column(db.String(50)) 
-    ref_number = db.Column(db.String(100), nullable=True)
-    is_potential_duplicate = db.Column(db.Boolean, default=False)
-    email_id = db.Column(db.String(200), unique=True)
-    status = db.Column(db.String(20), default="CLEAN")
+class Transaction(Base):
+    __tablename__ = "transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
     
-class CategoryRule(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    merchant_pattern = db.Column(db.String(200), nullable=False)
-    preferred_category = db.Column(db.String(50), nullable=False)
+    amount = Column(Float)
+    merchant = Column(String)
+    category = Column(String)
+    date = Column(DateTime)
+    
+    # Audit details
+    ref_number = Column(String, nullable=True)
+    email_id = Column(String) # The UID from the email
+    bank_name = Column(String)
+    
+    # Internal status
+    tx_type = Column(String) # DEBIT/CREDIT
+    status = Column(String, default="CLEAN") 
+    is_potential_duplicate = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=func.now())
+
+class CategoryRule(Base):
+    __tablename__ = "category_rules"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    merchant_pattern = Column(String)
+    preferred_category = Column(String)
