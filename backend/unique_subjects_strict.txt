@@ -1,0 +1,10 @@
+1. ❗ You have done a UPI txn. Check details!
+2. View: Account update for your HDFC Bank A/c
+3. Successfully Set-up biometric login on your MobileBanking App
+4. Successfully set up device for MobileBanking Access
+5. Successfully Set-up 4-Digit Login PIN on your MobileBanking App
+6. Payment unsuccessful HDFC Bank Debit Card xx5948
+7. Rs.2.00 debited via Debit Card **5948
+8. PAN Updation Successful!
+9. OTP to verify your PAN Updation
+10. ❗ New Deposit Alert: Check your A/c balance now!

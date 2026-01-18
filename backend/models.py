@@ -1,48 +1,56 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey
-from sqlalchemy.sql import func
-from database import Base
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy_utils import database_exists, create_database # <--- NEW IMPORT
+import os
+from dotenv import load_dotenv
 
-class User(Base):
-    __tablename__ = "users"
+load_dotenv()
 
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True)
-    email = Column(String, unique=True, index=True)
-    
-    # Credentials
-    imap_server = Column(String, default="imap.gmail.com")
-    imap_user = Column(String)
-    imap_password = Column(String) # In production, this should be encrypted
-    
-    # Sync Markers
-    last_processed_uid = Column(Integer, default=0)
-    min_processed_uid = Column(Integer, default=None, nullable=True)
+# 1. Get the URL
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
+
+# 2. Create Engine
+engine = create_engine(SQLALCHEMY_DATABASE_URL)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
 
 class Transaction(Base):
-    __tablename__ = "transactions"
+    __tablename__ = 'transactions'
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    
-    amount = Column(Float)
-    merchant = Column(String)
-    category = Column(String)
     date = Column(DateTime)
-    
-    # Audit details
-    ref_number = Column(String, nullable=True)
-    email_id = Column(String) # The UID from the email
-    bank_name = Column(String)
-    
-    # Internal status
-    tx_type = Column(String) # DEBIT/CREDIT
-    status = Column(String, default="CLEAN") 
-    is_potential_duplicate = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=func.now())
+    amount = Column(Float)
+    merchant = Column(String)     
+    category = Column(String)     
+    type = Column(String)         
+    ref_number = Column(String, unique=True, index=True) 
+    raw_subject = Column(String, nullable=True)
 
-class CategoryRule(Base):
-    __tablename__ = "category_rules"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    merchant_pattern = Column(String)
-    preferred_category = Column(String)
+# 3. Automation Function
+def init_db():
+    """
+    Checks if database exists. If not, creates it.
+    Then creates all tables.
+    """
+    try:
+        if not database_exists(engine.url):
+            create_database(engine.url)
+            print(f"✅ Database created at {engine.url}")
+        else:
+            print("ℹ️  Database already exists.")
+
+        # Create Tables (This is safe to run multiple times)
+        Base.metadata.create_all(bind=engine)
+        print("✅ Tables initialized.")
+        
+    except Exception as e:
+        print(f"❌ Error initializing DB: {e}")
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

@@ -1,64 +1,56 @@
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from fastapi import FastAPI, Depends, HTTPException, status
-# Import our modules
+from typing import List, Optional
 import models
-import schemas
-from database import engine, get_db
-from workers.mail_worker import MailWorker
+import sync_service
 
-# Create tables automatically
-models.Base.metadata.create_all(bind=engine)
+# Initialize DB and Tables
+models.init_db()  # <--- Triggers DB & Table creation
 
 app = FastAPI()
 
-# Enable CORS for React (Port 5173)
+# Enable CORS (so your local React/Vue app can hit this)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allow all for dev; restrict in prod
-    allow_credentials=True,
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-worker = MailWorker()
+# --- ENDPOINTS ---
 
-@app.post("/connect", response_model=schemas.APIResponse)
-def connect_bank(
-    request: schemas.UserConnectRequest, 
-    db: Session = Depends(get_db)
+@app.post("/sync")
+def trigger_sync(db: Session = Depends(models.get_db)):
+    """Button press: Go fetch new emails"""
+    return sync_service.fetch_and_sync_transactions(db)
+
+@app.get("/transactions")
+def read_transactions(
+    category: Optional[str] = None, 
+    limit: int = 50, 
+    db: Session = Depends(models.get_db)
 ):
-    # 1. Check if Username exists
-    if db.query(models.User).filter(models.User.username == request.username).first():
-        raise HTTPException(
-            status_code=400, 
-            detail="Username already taken. Please choose another."
-        )
-
-    # 2. Check if Email exists
-    user = db.query(models.User).filter(models.User.email == request.email).first()
+    """Get list for Dashboard Table"""
+    query = db.query(models.Transaction)
+    if category:
+        query = query.filter(models.Transaction.category == category)
     
-    if not user:
-        # Create new User with username
-        user = models.User(
-            username=request.username,  # <--- Save it here
-            email=request.email,
-            imap_user=request.email,
-            imap_password=request.password
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    else:
-        # Optional: Handle case where email exists but they want to update/link username
-        # For now, let's just update the password
-        user.imap_password = request.password
-        db.commit()
+    return query.order_by(models.Transaction.date.desc()).limit(limit).all()
 
-    # Trigger the background worker
-    worker.start_onboarding(user.id)
+@app.get("/dashboard/summary")
+def get_summary(db: Session = Depends(models.get_db)):
+    """Get data for Pie Charts / Total Cards"""
+    # Simple aggregation logic
+    total_spent = 0
+    cat_summary = {}
     
+    txs = db.query(models.Transaction).filter(models.Transaction.type == "DEBIT").all()
+    for t in txs:
+        total_spent += t.amount
+        cat_summary[t.category] = cat_summary.get(t.category, 0) + t.amount
+        
     return {
-        "status": "success",
-        "message": f"Welcome, {request.username}! Sync started."
+        "total_spent": total_spent,
+        "category_breakdown": cat_summary
     }
