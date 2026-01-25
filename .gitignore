@@ -3,6 +3,9 @@
 .env.local
 secrets.py
 
+# --- Trail Folders ---
+test_trails/
+
 # --- Database ---
 *.db
 *.sqlite3

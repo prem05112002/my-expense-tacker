@@ -1,0 +1,8 @@
+psycopg2-binary
+python-dotenv
+beautifulsoup4
+fastapi 
+uvicorn 
+psycopg2-binary 
+pydantic 
+flask-cors
