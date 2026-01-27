@@ -1,26 +1,32 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .routes import router
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="Expense Tracker API")
+from .database import init_db
+from .routers import transactions, dashboard, categories
 
-# --- CORS CONFIGURATION ---
-# Allow the frontend to talk to the backend
-origins = [
-    "http://localhost:5173", # Vite (Default)
-    "http://localhost:3000", # Create-React-App
-]
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("🚀 Server starting... checking tables.")
+    await init_db()
+    yield
+    print("🛑 Server shutting down.")
 
+app = FastAPI(title="Expense Tracker API", lifespan=lifespan)
+
+# CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Attach the routes we created
-app.include_router(router)
+# Register Routers
+app.include_router(dashboard.router)
+app.include_router(transactions.router)
+app.include_router(categories.router)
 
 @app.get("/")
 def read_root():

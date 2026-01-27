@@ -1,207 +1,248 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import api from '../api/axios';
-import { Search, Filter, Edit2, Check, X, Loader } from 'lucide-react';
+import { 
+    Search, Edit2, TrendingUp, TrendingDown, RotateCcw, 
+    ChevronLeft, ChevronRight, X, Check, Save 
+} from 'lucide-react';
+import debounce from 'lodash.debounce';
+
+// ✅ Imports
+import { getAmountColor, formatCurrency } from '../utils/formatters';
+import SortableHeader from '../components/ui/SortableHeader';
+import DateFilter from '../components/ui/DateFilter';
+import FilterButton from '../components/ui/FilterButton';
 
 const Transactions = () => {
+    // --- STATE ---
     const [transactions, setTransactions] = useState([]);
-    const [categories, setCategories] = useState([]);
+    const [categories, setCategories] = useState([]); 
     const [loading, setLoading] = useState(true);
     
-    // Modal State
+    // Pagination & Filters
+    const [page, setPage] = useState(1);
+    const [limit] = useState(15);
+    const [totalPages, setTotalPages] = useState(0);
+    const [totalRecords, setTotalRecords] = useState(0);
+    const [filters, setFilters] = useState({ search: '', startDate: '', endDate: '', type: 'ALL' });
+    const [sortConfig, setSortConfig] = useState({ key: 'txn_date', direction: 'desc' });
+
+    // Edit Modal
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editingTxn, setEditingTxn] = useState(null);
-    const [selectedCat, setSelectedCat] = useState('');
-    const [ruleKeyword, setRuleKeyword] = useState('');
-    const [createRule, setCreateRule] = useState(false);
-    const [applyRetro, setApplyRetro] = useState(false);
+    const [applyMerchantToSimilar, setApplyMerchantToSimilar] = useState(false);
+    const [applyCategoryToSimilar, setApplyCategoryToSimilar] = useState(false);
+    const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+    const [newCategoryName, setNewCategoryName] = useState("");
 
-    // Initial Data Fetch
+    // --- EFFECTS ---
     useEffect(() => {
-        fetchData();
-    }, []);
+        fetchTransactions();
+        fetchCategories();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [page, filters, sortConfig]);
 
-    const fetchData = async () => {
+    // --- API CALLS ---
+    const fetchCategories = async () => {
         try {
-            const [txnRes, catRes] = await Promise.all([
-                api.get('/transactions?limit=100'),
-                api.get('/categories')
-            ]);
-            setTransactions(txnRes.data);
-            setCategories(catRes.data);
-            setLoading(false);
-        } catch (error) {
-            console.error("Error fetching data", error);
-            setLoading(false);
-        }
+            const res = await api.get('/categories');
+            setCategories(res.data || []);
+        } catch (error) { console.error("Failed to fetch categories"); }
     };
 
-    // Open Modal
-    const handleEditClick = (txn) => {
-        setEditingTxn(txn);
-        setSelectedCat(txn.category_id || '');
-        // Default keyword: Clean up the merchant name slightly
-        setRuleKeyword(txn.merchant_name || '');
-        setCreateRule(false);
-        setApplyRetro(false);
-    };
-
-    // Submit Logic (The Brains)
-    const handleSave = async () => {
-        if (!selectedCat) return;
-
+    const fetchTransactions = async () => {
+        setLoading(true);
         try {
-            await api.post('/categorize', {
-                transaction_ids: [editingTxn.id],
-                category_id: selectedCat,
-                create_rule: createRule,
-                rule_keyword: ruleKeyword,
-                apply_retroactive: applyRetro
-            });
+            const params = new URLSearchParams();
+            params.append('page', page);
+            params.append('limit', limit);
+            params.append('sort_by', sortConfig.key);
+            params.append('sort_order', sortConfig.direction);
+            if (filters.search) params.append('search', filters.search);
+            if (filters.startDate) params.append('start_date', filters.startDate);
+            if (filters.endDate) params.append('end_date', filters.endDate);
+            if (filters.type !== 'ALL') params.append('payment_type', filters.type);
             
-            // Refresh data to see changes
-            fetchData();
-            setEditingTxn(null); // Close modal
-        } catch (error) {
-            alert("Failed to update category");
-            console.error(error);
-        }
+            const res = await api.get('/transactions', { params });
+            if (res.data && Array.isArray(res.data.data)) {
+                setTransactions(res.data.data);
+                setTotalPages(res.data.total_pages);
+                setTotalRecords(res.data.total);
+            } else { setTransactions([]); }
+        } catch (error) { setTransactions([]); } finally { setLoading(false); }
     };
 
-    if (loading) return <div className="p-8 text-center">Loading transactions...</div>;
+    // --- HANDLERS (Create & Edit) ---
+    const handleCreateCategory = async () => {
+        if (!newCategoryName.trim()) return;
+        try {
+            const res = await api.post('/categories', { name: newCategoryName });
+            setCategories(prev => [...prev, res.data]);
+            setEditingTxn({ ...editingTxn, category_id: res.data.id });
+            setIsCreatingCategory(false);
+            setNewCategoryName("");
+        } catch (error) { alert("Failed to create category."); }
+    };
+
+    const openEditModal = (txn) => {
+        setEditingTxn({
+            ...txn,
+            merchant_name: txn.merchant_name || '',
+            amount: txn.amount || 0,
+            txn_date: txn.txn_date || '',
+            payment_mode: txn.payment_mode || 'UPI',
+            category_id: txn.category_id || ''
+        });
+        setApplyMerchantToSimilar(false);
+        setApplyCategoryToSimilar(false);
+        setIsCreatingCategory(false);
+        setIsEditModalOpen(true);
+    };
+
+    const saveEdit = async () => {
+        if (!editingTxn) return;
+        try {
+            const payload = {
+                ...editingTxn,
+                amount: parseFloat(editingTxn.amount),
+                category_id: editingTxn.category_id ? parseInt(editingTxn.category_id) : null,
+                apply_merchant_to_similar: applyMerchantToSimilar,
+                apply_category_to_similar: applyCategoryToSimilar
+            };
+            await api.put(`/transactions/${editingTxn.id}`, payload);
+            fetchTransactions();
+            setIsEditModalOpen(false);
+        } catch (error) { alert("Failed to save changes."); }
+    };
+
+    // --- FILTERS & UTILS ---
+    const handleSearchChange = useMemo(() => debounce((val) => { setFilters(prev => ({ ...prev, search: val })); setPage(1); }, 500), []);
+    const toggleSort = (key) => { setSortConfig(current => ({ key, direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc' })); setPage(1); };
+    const clearAllFilters = () => { setFilters({ search: '', startDate: '', endDate: '', type: 'ALL' }); setSortConfig({ key: 'txn_date', direction: 'desc' }); setPage(1); document.getElementById('search-input').value = ""; };
+    const handlePageChange = (newPage) => { if (newPage >= 1 && newPage <= totalPages) setPage(newPage); };
 
     return (
-        <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <h2 className="text-3xl font-bold">Transactions</h2>
-                <button onClick={fetchData} className="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100">
-                    Refresh
-                </button>
+        <div className="flex flex-col h-[calc(100vh-4rem)] bg-[#0b0b0b] rounded-2xl border border-white/5 text-white font-sans overflow-hidden relative">
+            
+            {/* --- TOP BAR --- */}
+            <div className="p-6 border-b border-white/5 space-y-4 shrink-0 bg-[#0b0b0b]">
+                <div className="flex flex-col md:flex-row justify-between items-end gap-4">
+                    <div className="flex flex-wrap gap-4 items-end w-full md:w-auto">
+                        {/* Search Input */}
+                        <div className="relative w-64 group">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-teal-400 transition-colors" size={16} />
+                            <input id="search-input" type="text" placeholder="Search merchant..." onChange={(e) => handleSearchChange(e.target.value)} className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg py-2 pl-10 pr-4 text-sm text-white focus:outline-none focus:border-teal-500/50 transition-all" />
+                        </div>
+                        {/* Date Filters (Reusable Component) */}
+                        <DateFilter label="From" value={filters.startDate} onChange={(val) => setFilters(prev => ({...prev, startDate: val}))} />
+                        <DateFilter label="To" value={filters.endDate} onChange={(val) => setFilters(prev => ({...prev, endDate: val}))} />
+                    </div>
+                    
+                    {/* Filter Buttons (Reusable Component) */}
+                    <div className="flex items-center gap-3">
+                        <div className="flex bg-[#1e1e1e] rounded-lg p-1 border border-white/10">
+                            <FilterButton active={filters.type === 'ALL'} onClick={() => { setFilters({...filters, type: 'ALL'}); setPage(1); }} label="ALL" />
+                            <FilterButton active={filters.type === 'DEBIT'} onClick={() => { setFilters({...filters, type: 'DEBIT'}); setPage(1); }} label="DEBIT" icon={TrendingDown} colorClass="text-red-400" bgClass="bg-red-500/20 border-red-500/30"/>
+                            <FilterButton active={filters.type === 'CREDIT'} onClick={() => { setFilters({...filters, type: 'CREDIT'}); setPage(1); }} label="CREDIT" icon={TrendingUp} colorClass="text-emerald-400" bgClass="bg-emerald-500/20 border-emerald-500/30"/>
+                        </div>
+                        <button onClick={clearAllFilters} className="p-2 text-slate-500 hover:text-white hover:bg-white/10 rounded-lg transition-colors" title="Clear All Filters"><RotateCcw size={18} /></button>
+                    </div>
+                </div>
             </div>
 
-            {/* Transactions Table */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <table className="w-full text-left">
-                    <thead className="bg-slate-50 border-b border-slate-200">
-                        <tr>
-                            <th className="p-4 font-semibold text-slate-600">Date</th>
-                            <th className="p-4 font-semibold text-slate-600">Merchant</th>
-                            <th className="p-4 font-semibold text-slate-600">Amount</th>
-                            <th className="p-4 font-semibold text-slate-600">Category</th>
-                            <th className="p-4 font-semibold text-slate-600">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {transactions.map((txn) => (
-                            <tr key={txn.id} className="hover:bg-slate-50 transition-colors">
-                                <td className="p-4 text-slate-500">{txn.txn_date}</td>
-                                <td className="p-4 font-medium text-slate-800">
-                                    {txn.merchant_name || "Unknown Merchant"}
-                                    <div className="text-xs text-slate-400">{txn.bank_name}</div>
-                                </td>
-                                <td className="p-4 font-bold text-slate-800">
-                                    ₹{txn.amount.toLocaleString()}
-                                </td>
-                                <td className="p-4">
-                                    <span 
-                                        className="px-3 py-1 rounded-full text-sm font-medium"
-                                        style={{ 
-                                            backgroundColor: `${txn.category_color}20`, 
-                                            color: txn.category_color 
-                                        }}
-                                    >
-                                        {txn.category_name}
-                                    </span>
-                                </td>
-                                <td className="p-4">
-                                    <button 
-                                        onClick={() => handleEditClick(txn)}
-                                        className="p-2 hover:bg-slate-200 rounded-full text-slate-500"
-                                    >
-                                        <Edit2 size={16} />
-                                    </button>
-                                </td>
+            {/* --- TABLE AREA --- */}
+            <div className="flex-1 overflow-hidden relative">
+                <div className="absolute inset-0 overflow-y-auto custom-scrollbar">
+                    <table className="w-full text-left border-collapse">
+                        <thead className="sticky top-0 z-10 bg-[#0b0b0b] shadow-[0_1px_0_rgba(255,255,255,0.1)]">
+                            <tr>
+                                {/* Sortable Headers (Reusable Component) */}
+                                <SortableHeader label="Date" active={sortConfig.key === 'txn_date'} direction={sortConfig.direction} onClick={() => toggleSort('txn_date')} />
+                                <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-500">Merchant</th>
+                                <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-500">Mode</th>
+                                <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-500">Category</th>
+                                <SortableHeader label="Amount" align="right" active={sortConfig.key === 'amount'} direction={sortConfig.direction} onClick={() => toggleSort('amount')} />
+                                <th className="p-4 w-20"></th>
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                            {loading ? ( <tr><td colSpan="6" className="p-20 text-center text-slate-500 animate-pulse">Loading...</td></tr> ) : transactions.length === 0 ? ( <tr><td colSpan="6" className="p-20 text-center text-slate-500">No transactions found</td></tr> ) : (
+                                transactions.map((txn) => (
+                                    <tr key={txn.id} className="group hover:bg-white/[0.02] transition-colors border-b border-white/5 last:border-0">
+                                        <td className="p-4 text-slate-400 font-mono text-xs">{txn.txn_date}</td>
+                                        <td className="p-4 text-sm font-medium text-slate-200">{txn.merchant_name}</td>
+                                        <td className="p-4"><span className="text-[10px] font-bold bg-[#1e1e1e] border border-white/10 px-2 py-1 rounded text-slate-400 uppercase">{txn.payment_mode || 'CASH'}</span></td>
+                                        <td className="p-4"><span className="px-2.5 py-1 rounded-full text-[10px] font-bold border tracking-wide" style={{ borderColor: `${txn.category_color}30`, backgroundColor: `${txn.category_color}10`, color: txn.category_color }}>{txn.category_name}</span></td>
+                                        <td className={`p-4 text-right font-mono text-sm font-bold ${getAmountColor(txn.payment_type)}`}>₹{formatCurrency(txn.amount)}</td>
+                                        <td className="p-4 text-right"><button onClick={() => openEditModal(txn)} className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-all"><Edit2 size={14} /></button></td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            {/* --- FOOTER --- */}
+            <div className="p-4 border-t border-white/5 bg-[#0b0b0b] flex justify-between items-center shrink-0 z-20">
+                <span className="text-xs text-slate-500">Total: <span className="text-white font-bold">{totalRecords}</span></span>
+                <div className="flex items-center gap-2">
+                    <button onClick={() => handlePageChange(page - 1)} disabled={page === 1} className="p-2 rounded bg-[#1e1e1e] border border-white/10 text-slate-400 hover:text-white disabled:opacity-50 transition-all"><ChevronLeft size={16} /></button>
+                    <span className="text-xs font-mono text-slate-400 bg-[#1e1e1e] px-3 py-2 rounded border border-white/10">Page {page} of {totalPages || 1}</span>
+                    <button onClick={() => handlePageChange(page + 1)} disabled={page >= totalPages} className="p-2 rounded bg-[#1e1e1e] border border-white/10 text-slate-400 hover:text-white disabled:opacity-50 transition-all"><ChevronRight size={16} /></button>
+                </div>
             </div>
 
-            {/* EDIT MODAL */}
-            {editingTxn && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-                    <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
-                        <div className="flex justify-between items-center">
-                            <h3 className="text-xl font-bold">Categorize Transaction</h3>
-                            <button onClick={() => setEditingTxn(null)} className="text-slate-400 hover:text-slate-600">
-                                <X size={20} />
-                            </button>
+            {/* --- EDIT MODAL (Content condensed for brevity, logic remains same) --- */}
+            {isEditModalOpen && editingTxn && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="bg-[#111] w-full max-w-lg rounded-2xl border border-white/10 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                        <div className="p-5 border-b border-white/10 flex justify-between items-center bg-[#161616]">
+                            <h3 className="text-lg font-bold text-white flex items-center gap-2"><Edit2 size={18} className="text-teal-400"/> Edit Transaction</h3>
+                            <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-white"><X size={20}/></button>
                         </div>
-                        
-                        <div className="bg-slate-50 p-4 rounded-lg">
-                            <p className="text-sm text-slate-500">Merchant</p>
-                            <p className="font-semibold">{editingTxn.merchant_name}</p>
-                            <p className="text-lg font-bold text-blue-600 mt-1">₹{editingTxn.amount}</p>
-                        </div>
-
-                        {/* Category Select */}
-                        <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Select Category</label>
-                            <select 
-                                value={selectedCat} 
-                                onChange={(e) => setSelectedCat(e.target.value)}
-                                className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                            >
-                                <option value="">-- Choose Category --</option>
-                                {categories.map(cat => (
-                                    <option key={cat.id} value={cat.id}>{cat.name}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {/* THE SMART FEATURES */}
-                        <div className="border-t border-slate-100 pt-4 space-y-3">
-                            <label className="flex items-start gap-3 cursor-pointer">
-                                <input 
-                                    type="checkbox" 
-                                    checked={createRule}
-                                    onChange={(e) => setCreateRule(e.target.checked)}
-                                    className="mt-1 w-4 h-4 text-blue-600 rounded focus:ring-blue-500" 
-                                />
-                                <div>
-                                    <span className="font-medium text-slate-700">Create rule for future?</span>
-                                    <p className="text-xs text-slate-500">Always assign this category to similar merchants.</p>
-                                </div>
-                            </label>
-
-                            {createRule && (
-                                <div className="ml-7">
-                                    <label className="block text-xs font-medium text-slate-600 mb-1">Rule Keyword</label>
-                                    <input 
-                                        type="text" 
-                                        value={ruleKeyword}
-                                        onChange={(e) => setRuleKeyword(e.target.value)}
-                                        className="w-full p-2 text-sm border border-slate-300 rounded focus:border-blue-500 outline-none"
-                                        placeholder="e.g. Zomato"
-                                    />
-                                    <label className="flex items-center gap-2 mt-2 cursor-pointer">
-                                        <input 
-                                            type="checkbox" 
-                                            checked={applyRetro}
-                                            onChange={(e) => setApplyRetro(e.target.checked)}
-                                            className="w-3 h-3 text-blue-600 rounded" 
-                                        />
-                                        <span className="text-xs text-slate-600">Apply to existing past transactions too?</span>
+                        <div className="p-6 space-y-5 overflow-y-auto">
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-bold text-slate-500 uppercase">Merchant</label>
+                                <input type="text" value={editingTxn.merchant_name} onChange={(e) => setEditingTxn({...editingTxn, merchant_name: e.target.value})} className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg p-3 text-sm text-white focus:border-teal-500/50 outline-none"/>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase">Amount (₹)</label><input type="number" value={editingTxn.amount} onChange={(e) => setEditingTxn({...editingTxn, amount: e.target.value})} className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg p-3 text-sm text-white font-mono focus:border-teal-500/50 outline-none"/></div>
+                                <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase">Date</label><input type="date" value={editingTxn.txn_date} onChange={(e) => setEditingTxn({...editingTxn, txn_date: e.target.value})} className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg p-3 text-sm text-white focus:border-teal-500/50 outline-none"/></div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-bold text-slate-500 uppercase flex justify-between">
+                                        Category <button onClick={() => setIsCreatingCategory(!isCreatingCategory)} className="text-[10px] text-teal-400 hover:underline">{isCreatingCategory ? 'Select Existing' : '+ Create New'}</button>
                                     </label>
+                                    {isCreatingCategory ? (
+                                        <div className="flex gap-2">
+                                            <input type="text" placeholder="New Category Name" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="w-full bg-[#1e1e1e] border border-teal-500/50 rounded-lg p-3 text-sm text-white focus:outline-none"/>
+                                            <button onClick={handleCreateCategory} className="bg-teal-500 hover:bg-teal-400 text-black p-3 rounded-lg"><Check size={16} /></button>
+                                        </div>
+                                    ) : (
+                                        <select value={editingTxn.category_id || ""} onChange={(e) => setEditingTxn({...editingTxn, category_id: e.target.value})} className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg p-3 text-sm text-white focus:border-teal-500/50 outline-none">
+                                            <option value="">Uncategorized</option>
+                                            {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                                        </select>
+                                    )}
                                 </div>
-                            )}
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-bold text-slate-500 uppercase">Mode</label>
+                                    <select value={editingTxn.payment_mode} onChange={(e) => setEditingTxn({...editingTxn, payment_mode: e.target.value})} className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg p-3 text-sm text-white focus:border-teal-500/50 outline-none">
+                                        <option value="UPI">UPI</option><option value="CARD">CARD</option><option value="CASH">CASH</option><option value="NETBANKING">NETBANKING</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Bulk Actions</p>
+                                <div className="flex items-center gap-3"><input type="checkbox" id="applyMerchant" checked={applyMerchantToSimilar} onChange={(e) => setApplyMerchantToSimilar(e.target.checked)} className="w-4 h-4 rounded bg-slate-800 border-slate-600 text-teal-500"/><label htmlFor="applyMerchant" className="text-sm text-slate-300">Update <b>Merchant Name</b> for all similar</label></div>
+                                <div className="flex items-center gap-3"><input type="checkbox" id="applyCategory" checked={applyCategoryToSimilar} onChange={(e) => setApplyCategoryToSimilar(e.target.checked)} className="w-4 h-4 rounded bg-slate-800 border-slate-600 text-teal-500"/><label htmlFor="applyCategory" className="text-sm text-slate-300">Update <b>Category</b> for all similar</label></div>
+                            </div>
                         </div>
-
-                        <button 
-                            onClick={handleSave}
-                            disabled={!selectedCat}
-                            className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
-                        >
-                            Save Category
-                        </button>
+                        <div className="p-5 border-t border-white/10 flex justify-end gap-3 bg-[#161616]">
+                            <button onClick={() => setIsEditModalOpen(false)} className="px-5 py-2 rounded-lg text-sm font-bold text-slate-400 hover:text-white hover:bg-white/5">Cancel</button>
+                            <button onClick={saveEdit} className="px-6 py-2 rounded-lg text-sm font-bold bg-teal-500 text-black hover:bg-teal-400 flex items-center gap-2"><Save size={16} /> Save Changes</button>
+                        </div>
                     </div>
                 </div>
             )}
