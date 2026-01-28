@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, DateTime, Text
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -22,6 +22,7 @@ class Transaction(Base):
     payment_mode = Column(String, index=True) # UPI, Card
     payment_type = Column(String, default="DEBIT") # CREDIT / DEBIT
     bank_name = Column(String, nullable=True)
+    upi_transaction_id = Column(String, nullable=True, index=True)
     
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     category = relationship("Category", back_populates="transactions")
@@ -34,3 +35,19 @@ class CategoryRule(Base):
     category_id = Column(Integer, ForeignKey("categories.id"))
     
     category = relationship("Category", back_populates="rules")
+
+class IgnoredDuplicate(Base):
+    __tablename__ = "ignored_duplicates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    txn1_id = Column(Integer, ForeignKey("transactions.id"), index=True) # The smaller ID
+    txn2_id = Column(Integer, ForeignKey("transactions.id"), index=True) # The larger ID
+
+class StagingTransaction(Base):
+    __tablename__ = "unmatched_emails"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email_uid = Column(String, unique=True, index=True)
+    email_subject = Column(String)
+    email_body = Column(Text, nullable=True)
+    received_at = Column(DateTime)

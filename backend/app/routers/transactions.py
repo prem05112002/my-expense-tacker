@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import List
 from typing import Optional
 from datetime import date
 
@@ -35,3 +36,18 @@ async def update_transaction(
         raise HTTPException(status_code=404, detail="Transaction not found")
     
     return {"message": "Transaction updated successfully"}
+
+@router.get("/duplicates", response_model=List[schemas.DuplicateGroup])
+async def get_potential_duplicates(db: AsyncSession = Depends(get_db)):
+    """
+    Analyzes transactions to find potential double-entries.
+    """
+    return await services.scan_for_duplicates(db)
+
+@router.post("/duplicates/resolve")
+async def resolve_duplicate(
+    data: schemas.ResolveDuplicate,
+    db: AsyncSession = Depends(get_db)
+):
+    await services.resolve_duplicate_pair(db, data)
+    return {"message": "Duplicate resolved"}

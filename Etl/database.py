@@ -124,6 +124,7 @@ def init_db():
             id SERIAL PRIMARY KEY,
             email_uid VARCHAR(50) UNIQUE,
             email_subject TEXT,
+            email_body TEXT,
             received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
@@ -229,17 +230,17 @@ def save_transaction(txn):
     finally:
         conn.close()
 
-def save_unmatched(email_uid, subject):
+def save_unmatched(email_uid, subject, body):
     conn = get_db_connection()
     if not conn: return
 
     try:
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO unmatched_emails (email_uid, email_subject) 
-            VALUES (%s, %s)
+            INSERT INTO unmatched_emails (email_uid, email_subject, email_body, received_at)
+            VALUES (%s, %s, %s, NOW())
             ON CONFLICT (email_uid) DO NOTHING
-        """, (str(email_uid), subject))
+        """, (email_uid, subject, body))
         conn.commit()
     except Exception as e:
         print(f"❌ DB Unmatched Insert Error: {e}")

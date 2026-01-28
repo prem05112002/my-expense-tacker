@@ -48,8 +48,7 @@ def pipeline_job():
             # --- FAILURE CASE ---
             print(f"❌ Unmatched: {subject} -> Moving to NonTransaction")
             
-            # CHANGE: Save UID + Subject only
-            save_unmatched(uid_str, subject)
+            save_unmatched(uid_str, subject, cleaned_body)
             
             service.move_email(e_id, NON_TXN_FOLDER)
 

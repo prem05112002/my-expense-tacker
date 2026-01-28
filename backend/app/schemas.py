@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
-from datetime import date
+from datetime import date, datetime 
 
 # --- BASE MODELS ---
 class CategoryBase(BaseModel):
@@ -21,6 +21,7 @@ class TransactionBase(BaseModel):
     payment_mode: Optional[str]
     payment_type: str = "DEBIT"
     bank_name: Optional[str]
+    upi_transaction_id: Optional[str] = None
 
 # --- RESPONSE MODELS ---
 class TransactionOut(TransactionBase):
@@ -50,6 +51,37 @@ class TransactionUpdate(BaseModel):
     txn_date: date
     category_id: Optional[int] = None
     
-    # ✅ Granular flags for the frontend bulk update feature
     apply_merchant_to_similar: bool = False
     apply_category_to_similar: bool = False
+
+class DuplicateGroup(BaseModel):
+    group_id: str
+    confidence_score: int
+    transactions: List[TransactionOut]
+    warning_message: str
+
+class ResolveDuplicate(BaseModel):
+    keep_id: Optional[int] = None 
+    delete_id: Optional[int] = None 
+    txn1_id: int 
+    txn2_id: int
+
+# --- STAGING / NEEDS REVIEW MODELS ---
+
+class StagingTransactionOut(BaseModel):
+    id: int
+    email_uid: str
+    email_subject: str
+    received_at: Optional[datetime] 
+    email_body: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class StagingConvert(BaseModel):
+    staging_id: int
+    merchant_name: str
+    amount: float
+    txn_date: date
+    payment_mode: Optional[str] = "UPI"
+    payment_type: str = "DEBIT"
+    category_id: Optional[int] = None

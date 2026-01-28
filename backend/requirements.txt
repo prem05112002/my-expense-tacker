@@ -4,3 +4,4 @@ sqlalchemy
 asyncpg 
 pydantic-settings
 greenlet
+rapidfuzz
