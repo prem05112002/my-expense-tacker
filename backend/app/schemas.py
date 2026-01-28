@@ -1,12 +1,14 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
-from datetime import date, datetime 
+from datetime import date, datetime
 
-# --- BASE MODELS ---
+# ==========================================
+# 1. BASE MODELS (Shared)
+# ==========================================
 class CategoryBase(BaseModel):
     name: str
     color: str = "#94a3b8"
-    is_income: bool = False # New field
+    is_income: bool = False
 
 class CategoryOut(CategoryBase):
     id: int
@@ -24,7 +26,9 @@ class TransactionBase(BaseModel):
     bank_name: Optional[str]
     upi_transaction_id: Optional[str] = None
 
-# --- RESPONSE MODELS ---
+# ==========================================
+# 2. RESPONSE MODELS (Output to Frontend)
+# ==========================================
 class TransactionOut(TransactionBase):
     id: int
     category_name: str = "Uncategorized"
@@ -38,61 +42,21 @@ class PaginatedResponse(BaseModel):
     limit: int
     total_pages: int
 
-class DashboardStats(BaseModel):
-    total_spend: float
-    uncategorized_count: int
-    recent_transactions: List[TransactionOut]
-    category_breakdown: List[dict]
-
-# --- REQUEST MODELS ---
-class TransactionUpdate(BaseModel):
-    merchant_name: str
-    amount: float
-    payment_mode: str
-    txn_date: date
-    category_id: Optional[int] = None
-    
-    apply_merchant_to_similar: bool = False
-    apply_category_to_similar: bool = False
-
+# ✅ DUPLICATE GROUP SCHEMA (Required for Transactions Page)
 class DuplicateGroup(BaseModel):
     group_id: str
     confidence_score: int
     transactions: List[TransactionOut]
     warning_message: str
 
-class ResolveDuplicate(BaseModel):
-    keep_id: Optional[int] = None 
-    delete_id: Optional[int] = None 
-    txn1_id: int 
-    txn2_id: int
+# ✅ DASHBOARD: Spending Trend Graph Points
+class SpendingTrendItem(BaseModel):
+    day: int
+    date: str
+    actual: Optional[float]
+    ideal: float
 
-# --- STAGING / NEEDS REVIEW MODELS ---
-
-class StagingTransactionOut(BaseModel):
-    id: int
-    email_uid: str
-    email_subject: str
-    received_at: Optional[datetime] 
-    email_body: Optional[str] = None
-    
-    model_config = ConfigDict(from_attributes=True)
-
-class StagingConvert(BaseModel):
-    staging_id: int
-    merchant_name: str
-    amount: float
-    txn_date: date
-    payment_mode: Optional[str] = "UPI"
-    payment_type: str = "DEBIT"
-    category_id: Optional[int] = None
-
-class UserSettingsUpdate(BaseModel):
-    salary_day: int
-    budget_type: str  # "FIXED" or "PERCENTAGE"
-    budget_value: float
-
-# 2. For the "Financial Health" Dashboard
+# ✅ DASHBOARD: Financial Health Stats
 class FinancialHealthStats(BaseModel):
     # Context
     cycle_start: date
@@ -105,23 +69,73 @@ class FinancialHealthStats(BaseModel):
     total_budget: float
     total_spend: float
     budget_remaining: float
-    safe_to_spend_daily: float  # The "Hero" Metric
+    safe_to_spend_daily: float
     
     # Analysis
-    burn_rate_status: str       # "Green", "Yellow", "Red", "Critical"
+    burn_rate_status: str
     projected_spend: float      
+
+    # Trends
+    prev_cycle_spend_todate: float = 0.0
+    spend_diff_percent: float = 0.0
+    spending_trend: List[SpendingTrendItem] = [] 
     
     # Data
-    recent_transactions: List['TransactionOut']
+    recent_transactions: List[TransactionOut]
     category_breakdown: List[dict]
 
-# ✅ Rule Engine Schemas
+# ✅ STAGING / NEEDS REVIEW SCHEMAS (Fixed the Error)
+class StagingTransactionOut(BaseModel):
+    id: int
+    email_subject: str
+    received_at: Optional[datetime] 
+    email_body: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
+
+# Alias to prevent errors if referenced as 'StagingTransaction' elsewhere
+class StagingTransaction(StagingTransactionOut):
+    pass
+
+# ==========================================
+# 3. REQUEST MODELS (Input from Frontend)
+# ==========================================
+class TransactionUpdate(BaseModel):
+    merchant_name: str
+    amount: float
+    payment_mode: str
+    txn_date: date
+    category_id: Optional[int] = None
+    apply_merchant_to_similar: bool = False
+    apply_category_to_similar: bool = False
+
+class ResolveDuplicate(BaseModel):
+    txn1_id: int
+    txn2_id: int
+    keep_id: Optional[int] = None
+    delete_id: Optional[int] = None
+
+class StagingConvert(BaseModel):
+    staging_id: int
+    merchant_name: str
+    amount: float
+    txn_date: date
+    payment_mode: Optional[str] = "UPI"
+    payment_type: str = "DEBIT"
+    category_id: Optional[int] = None
+
+class UserSettingsUpdate(BaseModel):
+    salary_day: int
+    budget_type: str 
+    budget_value: float
+
+# ✅ RULE ENGINE SCHEMAS
 class RuleCreate(BaseModel):
     pattern: str
-    new_merchant_name: str
-    category_id: int
-    match_type: str = "CONTAINS"
-    excluded_ids: Optional[List[int]] = []
+    new_merchant_name: str = Field("", alias="newMerchantName")
+    category_id: int = Field("", alias="categoryId")
+    match_type: str = Field("CONTAINS", alias="matchType")
+    excluded_ids: Optional[List[int]] = Field([], alias="excludedIds")
+    model_config = ConfigDict(populate_by_name=True)
 
 class RuleOut(RuleCreate):
     id: int
@@ -129,13 +143,8 @@ class RuleOut(RuleCreate):
     category_color: str
     model_config = ConfigDict(from_attributes=True)
 
-# ✅ New Schema for Preview Results
 class RulePreviewResult(BaseModel):
     transaction_id: int
     current_name: str
     date: date
     amount: float
-
-# Ensure this forward reference update is present at the bottom
-from .schemas import TransactionOut  
-FinancialHealthStats.model_rebuild()
