@@ -6,6 +6,7 @@ from datetime import date, datetime
 class CategoryBase(BaseModel):
     name: str
     color: str = "#94a3b8"
+    is_income: bool = False # New field
 
 class CategoryOut(CategoryBase):
     id: int
@@ -85,3 +86,56 @@ class StagingConvert(BaseModel):
     payment_mode: Optional[str] = "UPI"
     payment_type: str = "DEBIT"
     category_id: Optional[int] = None
+
+class UserSettingsUpdate(BaseModel):
+    salary_day: int
+    budget_type: str  # "FIXED" or "PERCENTAGE"
+    budget_value: float
+
+# 2. For the "Financial Health" Dashboard
+class FinancialHealthStats(BaseModel):
+    # Context
+    cycle_start: date
+    cycle_end: date
+    days_in_cycle: int
+    days_passed: int
+    days_left: int
+    
+    # Money
+    total_budget: float
+    total_spend: float
+    budget_remaining: float
+    safe_to_spend_daily: float  # The "Hero" Metric
+    
+    # Analysis
+    burn_rate_status: str       # "Green", "Yellow", "Red", "Critical"
+    projected_spend: float      
+    
+    # Data
+    recent_transactions: List['TransactionOut']
+    category_breakdown: List[dict]
+
+# ✅ Rule Engine Schemas
+class RuleCreate(BaseModel):
+    pattern: str
+    new_merchant_name: str
+    category_id: int
+    match_type: str = "CONTAINS"
+    excluded_ids: Optional[List[int]] = []
+
+class RuleOut(RuleCreate):
+    id: int
+    category_name: str
+    category_color: str
+    model_config = ConfigDict(from_attributes=True)
+
+# ✅ New Schema for Preview Results
+class RulePreviewResult(BaseModel):
+    transaction_id: int
+    current_name: str
+    date: date
+    amount: float
+
+# Ensure this forward reference update is present at the bottom
+from .schemas import TransactionOut  
+FinancialHealthStats.model_rebuild()

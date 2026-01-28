@@ -5,3 +5,4 @@ asyncpg
 pydantic-settings
 greenlet
 rapidfuzz
+holidays

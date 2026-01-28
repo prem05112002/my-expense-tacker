@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import api from '../api/axios';
 import { 
     Search, Edit2, TrendingUp, TrendingDown, RotateCcw, 
-    ChevronLeft, ChevronRight, X, Check, Save 
+    ChevronLeft, ChevronRight, X, Check, Save, Wand2 
 } from 'lucide-react';
 import debounce from 'lodash.debounce';
 
@@ -33,6 +33,13 @@ const Transactions = () => {
     const [applyCategoryToSimilar, setApplyCategoryToSimilar] = useState(false);
     const [isCreatingCategory, setIsCreatingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState("");
+
+    const [showRuleModal, setShowRuleModal] = useState(false);
+    const [ruleData, setRuleData] = useState({ pattern: '', new_name: '', category_id: '' });
+
+    const [previewStep, setPreviewStep] = useState('INPUT'); // 'INPUT' or 'PREVIEW'
+    const [previewResults, setPreviewResults] = useState([]);
+    const [excludedIds, setExcludedIds] = useState(new Set());
 
     // --- EFFECTS ---
     useEffect(() => {
@@ -114,6 +121,75 @@ const Transactions = () => {
         } catch (error) { alert("Failed to save changes."); }
     };
 
+    const handleOpenRule = (txn) => {
+        setRuleData({
+            pattern: txn.merchant_name, // Default pattern is current name
+            new_name: '',
+            category_id: ''
+        });
+        setShowRuleModal(true);
+    };
+    
+    const handleCreateRule = async () => {
+        try {
+            await api.post('/rules/', {
+                pattern: ruleData.pattern,
+                new_merchant_name: ruleData.new_name,
+                category_id: ruleData.category_id,
+                match_type: "CONTAINS"
+            });
+            setShowRuleModal(false);
+            alert("Rule created & applied to history!");
+            fetchTransactions(); // Refresh list to see cleaned names
+        } catch (e) {
+            alert("Failed to create rule");
+        }
+    };
+
+    const handlePreviewRule = async () => {
+        try {
+            setLoading(true);
+            const res = await api.post('/rules/preview', {
+                pattern: ruleData.pattern,
+                new_merchant_name: ruleData.new_name, // Not used for search, but required by schema
+                category_id: ruleData.category_id || 0, // Dummy
+                match_type: "CONTAINS"
+            });
+            setPreviewResults(res.data);
+            setExcludedIds(new Set()); // Reset exclusions
+            setPreviewStep('PREVIEW');
+        } catch (e) {
+            alert("Failed to preview matches");
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    // 2. Toggle Selection
+    const toggleExclusion = (id) => {
+        const next = new Set(excludedIds);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        setExcludedIds(next);
+    };
+
+    const handleConfirmRule = async () => {
+        try {
+            await api.post('/rules/', {
+                pattern: ruleData.pattern,
+                new_merchant_name: ruleData.new_name,
+                category_id: ruleData.category_id,
+                match_type: "CONTAINS",
+                excluded_ids: Array.from(excludedIds) // ✅ Send unchecked IDs
+            });
+            setShowRuleModal(false);
+            setPreviewStep('INPUT'); // Reset
+            fetchTransactions(); // Refresh UI
+        } catch (e) {
+            alert("Failed to save rule");
+        }
+    };
+
     // --- FILTERS & UTILS ---
     const handleSearchChange = useMemo(() => debounce((val) => { setFilters(prev => ({ ...prev, search: val })); setPage(1); }, 500), []);
     const toggleSort = (key) => { setSortConfig(current => ({ key, direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc' })); setPage(1); };
@@ -169,7 +245,16 @@ const Transactions = () => {
                                 transactions.map((txn) => (
                                     <tr key={txn.id} className="group hover:bg-white/[0.02] transition-colors border-b border-white/5 last:border-0">
                                         <td className="p-4 text-slate-400 font-mono text-xs">{txn.txn_date}</td>
-                                        <td className="p-4 text-sm font-medium text-slate-200">{txn.merchant_name}</td>
+                                        <td className="p-4 flex items-center gap-2">
+                                            <span>{txn.merchant_name}</span>
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); handleOpenRule(txn); }}
+                                                className="text-slate-600 hover:text-blue-400 transition-colors"
+                                                title="Create cleanup rule"
+                                            >
+                                                <Wand2 size={14} />
+                                            </button>
+                                        </td>
                                         <td className="p-4"><span className="text-[10px] font-bold bg-[#1e1e1e] border border-white/10 px-2 py-1 rounded text-slate-400 uppercase">{txn.payment_mode || 'CASH'}</span></td>
                                         <td className="p-4"><span className="px-2.5 py-1 rounded-full text-[10px] font-bold border tracking-wide" style={{ borderColor: `${txn.category_color}30`, backgroundColor: `${txn.category_color}10`, color: txn.category_color }}>{txn.category_name}</span></td>
                                         <td className={`p-4 text-right font-mono text-sm font-bold ${getAmountColor(txn.payment_type)}`}>₹{formatCurrency(txn.amount)}</td>
@@ -243,6 +328,160 @@ const Transactions = () => {
                             <button onClick={() => setIsEditModalOpen(false)} className="px-5 py-2 rounded-lg text-sm font-bold text-slate-400 hover:text-white hover:bg-white/5">Cancel</button>
                             <button onClick={saveEdit} className="px-6 py-2 rounded-lg text-sm font-bold bg-teal-500 text-black hover:bg-teal-400 flex items-center gap-2"><Save size={16} /> Save Changes</button>
                         </div>
+                    </div>
+                </div>
+            )}
+            {showRuleModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div 
+                        className="bg-[#111] border border-white/10 p-6 rounded-xl w-full max-w-lg max-h-[80vh] flex flex-col box-shadow-xl"
+                        style={{ boxShadow: '0 4px 60px -15px rgba(45, 212, 191, 0.2)' }}
+                    >
+                        <h3 className="text-xl text-white font-bold mb-6 flex items-center gap-3 border-b border-white/5 pb-4">
+                            {/* 🎨 THEME UPDATE: Exact RGB Color */}
+                            <Wand2 style={{ color: 'rgb(45, 212, 191)' }} size={24} /> 
+                            {previewStep === 'INPUT' ? "Create Automation Rule" : "Verify Matches"}
+                        </h3>
+                        
+                        {previewStep === 'INPUT' ? (
+                            // --- STEP 1: INPUT FORM ---
+                            <div className="space-y-5">
+                                <div>
+                                    <label 
+                                        className="text-xs font-semibold uppercase tracking-wider mb-1 block"
+                                        style={{ color: 'rgb(45, 212, 191)' }}
+                                    >
+                                        If Merchant Name Contains
+                                    </label>
+                                    <input 
+                                        className="w-full bg-[#1a1a1a] text-white p-3 rounded-lg border border-white/10 focus:outline-none transition-colors"
+                                        style={{ borderColor: 'rgba(255,255,255,0.1)' }}
+                                        onFocus={(e) => e.target.style.borderColor = 'rgb(45, 212, 191)'}
+                                        onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+                                        value={ruleData.pattern}
+                                        placeholder="e.g. Swiggy"
+                                        autoFocus
+                                        onChange={e => setRuleData({...ruleData, pattern: e.target.value})}
+                                    />
+                                </div>
+                                <div>
+                                    <label 
+                                        className="text-xs font-semibold uppercase tracking-wider mb-1 block"
+                                        style={{ color: 'rgb(45, 212, 191)' }}
+                                    >
+                                        Rename Merchant To
+                                    </label>
+                                    <input 
+                                        className="w-full bg-[#1a1a1a] text-white p-3 rounded-lg border border-white/10 focus:outline-none transition-colors"
+                                        style={{ borderColor: 'rgba(255,255,255,0.1)' }}
+                                        onFocus={(e) => e.target.style.borderColor = 'rgb(45, 212, 191)'}
+                                        onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+                                        placeholder="e.g. Swiggy"
+                                        value={ruleData.new_name}
+                                        onChange={e => setRuleData({...ruleData, new_name: e.target.value})}
+                                    />
+                                </div>
+                                <div>
+                                    <label 
+                                        className="text-xs font-semibold uppercase tracking-wider mb-1 block"
+                                        style={{ color: 'rgb(45, 212, 191)' }}
+                                    >
+                                        Auto-Categorize As
+                                    </label>
+                                    <select 
+                                        className="w-full bg-[#1a1a1a] text-white p-3 rounded-lg border border-white/10 focus:outline-none"
+                                        style={{ borderColor: 'rgba(255,255,255,0.1)' }}
+                                        onFocus={(e) => e.target.style.borderColor = 'rgb(45, 212, 191)'}
+                                        onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
+                                        value={ruleData.category_id}
+                                        onChange={e => setRuleData({...ruleData, category_id: e.target.value})}
+                                    >
+                                        <option value="">Select Category...</option>
+                                        {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                    </select>
+                                </div>
+
+                                <div className="flex gap-3 mt-6">
+                                    <button 
+                                        onClick={() => { setShowRuleModal(false); setPreviewStep('INPUT'); }}
+                                        className="flex-1 px-4 py-3 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 transition-all font-medium"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button 
+                                        onClick={handlePreviewRule}
+                                        className="flex-1 text-[#111] font-bold py-3 rounded-lg transition-all shadow-lg"
+                                        style={{ 
+                                            backgroundColor: 'rgb(45, 212, 191)',
+                                            boxShadow: '0 4px 20px -5px rgba(45, 212, 191, 0.5)'
+                                        }}
+                                    >
+                                        Preview Matches
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            // --- STEP 2: VERIFICATION LIST ---
+                            <div className="flex flex-col h-full overflow-hidden">
+                                <div 
+                                    className="rounded-lg p-3 mb-4 text-sm"
+                                    style={{ 
+                                        backgroundColor: 'rgba(45, 212, 191, 0.1)', 
+                                        color: 'rgb(45, 212, 191)',
+                                        border: '1px solid rgba(45, 212, 191, 0.2)'
+                                    }}
+                                >
+                                    Found <strong>{previewResults.length}</strong> historical matches. 
+                                    Uncheck any you want to ignore.
+                                </div>
+                                
+                                <div className="flex-1 overflow-y-auto border border-white/10 rounded-lg bg-[#1a1a1a] p-2 space-y-2 custom-scrollbar">
+                                    {previewResults.map(txn => (
+                                        <div key={txn.transaction_id} className="flex items-center gap-3 p-3 hover:bg-white/5 rounded-lg transition-colors border border-transparent hover:border-white/5">
+                                            <input 
+                                                type="checkbox"
+                                                checked={!excludedIds.has(txn.transaction_id)}
+                                                onChange={() => toggleExclusion(txn.transaction_id)}
+                                                className="w-5 h-5 rounded cursor-pointer accent-[rgb(45,212,191)]"
+                                                style={{ accentColor: 'rgb(45, 212, 191)' }}
+                                            />
+                                            <div className="flex-1">
+                                                <div className="text-white font-medium">{txn.current_name}</div>
+                                                <div className="text-xs text-slate-500 mt-0.5">
+                                                    {txn.date} • {formatCurrency(txn.amount)}
+                                                </div>
+                                            </div>
+                                            <div 
+                                                className="text-sm font-bold flex items-center gap-1"
+                                                style={{ color: 'rgb(45, 212, 191)' }}
+                                            >
+                                                <Check size={14} />
+                                                {ruleData.new_name}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="mt-6 flex gap-3">
+                                    <button 
+                                        onClick={() => setPreviewStep('INPUT')}
+                                        className="flex-1 px-4 py-3 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 transition-all font-medium"
+                                    >
+                                        Back
+                                    </button>
+                                    <button 
+                                        onClick={handleConfirmRule}
+                                        className="flex-1 text-[#111] font-bold py-3 rounded-lg transition-all shadow-lg"
+                                        style={{ 
+                                            backgroundColor: 'rgb(45, 212, 191)',
+                                            boxShadow: '0 4px 20px -5px rgba(45, 212, 191, 0.5)'
+                                        }}
+                                    >
+                                        Confirm & Apply
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

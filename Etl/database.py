@@ -173,6 +173,27 @@ def check_soft_duplicate(cur, txn):
     row = cur.fetchone()
     return row[0] if row else None
 
+# ✅ 1. NEW Helper to fetch Rules
+def get_active_rules():
+    """Fetches all cleanup rules to apply during ETL."""
+    conn = get_db_connection()
+    if not conn: return []
+    try:
+        cur = conn.cursor()
+        # Fetch pattern, new_name, category_id, match_type
+        cur.execute("SELECT pattern, new_merchant_name, category_id, match_type FROM transaction_rules")
+        rows = cur.fetchall()
+        rules = [
+            {"pattern": r[0], "new_name": r[1], "cat_id": r[2], "type": r[3]} 
+            for r in rows
+        ]
+        return rules
+    except Exception as e:
+        print(f"⚠️ Failed to fetch rules: {e}")
+        return []
+    finally:
+        conn.close()
+
 def save_transaction(txn):
     conn = get_db_connection()
     if not conn: return
@@ -215,13 +236,15 @@ def save_transaction(txn):
             
             if original_txn_id:
                 print(f"🚩 Soft Duplicate Flagged: Linked to Transaction ID #{original_txn_id}")
+            
+            final_cat_id = txn.category_id if txn.category_id else None
 
             cur.execute("""
                 INSERT INTO transactions 
                 (bank_name, amount, payment_type, account_num, payment_mode, txn_date, upi_id, merchant_name, upi_transaction_id, category_id, potential_duplicate_of_id)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL, %s, %s)
-            """, (t_bank, txn.amount, txn.payment_type, txn.account_num, 
-                  t_mode, txn.date, t_upi, t_merch, final_cat_id, original_txn_id))
+            """, (txn.bank_name, txn.amount, txn.payment_type, txn.account_num, 
+                txn.payment_mode, txn.date, txn.upi_id, txn.merchant_name, final_cat_id, original_txn_id))
 
         conn.commit()
     except Exception as e:
@@ -231,18 +254,22 @@ def save_transaction(txn):
         conn.close()
 
 def save_unmatched(email_uid, subject, body):
+    """Saves non-transaction emails. Skips if UID already exists."""
     conn = get_db_connection()
     if not conn: return
 
     try:
         cur = conn.cursor()
+        # ✅ FIX: Use ON CONFLICT DO NOTHING to prevent crashes
         cur.execute("""
             INSERT INTO unmatched_emails (email_uid, email_subject, email_body, received_at)
             VALUES (%s, %s, %s, NOW())
             ON CONFLICT (email_uid) DO NOTHING
-        """, (email_uid, subject, body))
+        """, (str(email_uid), subject, body))
+        
         conn.commit()
     except Exception as e:
-        print(f"❌ DB Unmatched Insert Error: {e}")
+        print(f"❌ Error saving unmatched email: {e}")
+        conn.rollback()
     finally:
         conn.close()

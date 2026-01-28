@@ -15,6 +15,8 @@ class Transaction:
     upi_id: Optional[str] = None
     merchant_name: Optional[str] = None
     upi_transaction_id: Optional[str] = None
+    # ✅ NEW FIELD
+    category_id: Optional[int] = None
 
 # --- REGEX PATTERNS (Same as before) ---
 PATTERNS = {
