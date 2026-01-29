@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import Transactions from './pages/Transactions';
 import Duplicates from './pages/Duplicates';
 import NeedsReview from './pages/NeedsReview';
+import Profile from './pages/Profile';
 
 function App() {
   return (
@@ -13,8 +14,10 @@ function App() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/transactions" element={<Transactions />} />
+          <Route path="/profile" element={<Profile />} />
           <Route path="/duplicates" element={<Duplicates />} />
           <Route path="/needs-review" element={<NeedsReview />} />
+
         </Routes>
       </Layout>
     </Router>

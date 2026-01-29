@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Receipt, AlertCircle, Copy, Wallet } from 'lucide-react';
+import { LayoutDashboard, Receipt, AlertCircle, Copy, Wallet, User } from 'lucide-react';
 
 const Sidebar = () => {
     const location = useLocation();
@@ -8,6 +8,8 @@ const Sidebar = () => {
     const menuItems = [
         { icon: LayoutDashboard, label: 'Home', path: '/' },
         { icon: Receipt, label: 'Expenses', path: '/transactions' },
+        // ✅ NEW: Profile Link
+        { icon: User, label: 'Profile & Settings', path: '/profile' },
     ];
 
     const actionItems = [

@@ -80,3 +80,12 @@ class UserSettings(Base):
     monthly_budget = Column(Float, default=50000.0)
     budget_type = Column(String, default="FIXED") # FIXED or PERCENTAGE
     budget_value = Column(Float, default=50000.0)
+    # ✅ NEW FIELDS
+    # Store lists as comma-separated strings (e.g., "Investments,Transfer")
+    ignored_categories = Column(String, default="") 
+    
+    # Categories to treat as "Pure Income" (Salary) so they don't reduce spending
+    income_categories = Column(String, default="Salary,Income") 
+    
+    # 0 = Current, 1 = Last Month, 2 = 2 Months ago...
+    view_cycle_offset = Column(Integer, default=0)

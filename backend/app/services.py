@@ -54,21 +54,14 @@ def move_email_in_background(uid: str, target_folder: str):
 # ⚙️ SETTINGS & PAYDAY LOGIC
 # ==========================================
 async def get_or_create_settings(db: AsyncSession):
-    stmt = select(models.UserSettings)
+    stmt = select(models.UserSettings).limit(1)
     result = await db.execute(stmt)
     settings = result.scalar_one_or_none()
-    
     if not settings:
-        settings = models.UserSettings(
-            salary_day=1, 
-            monthly_budget=50000.0,
-            budget_type="FIXED",
-            budget_value=50000.0
-        )
+        settings = models.UserSettings(salary_day=1, budget_type="PERCENTAGE", budget_value=40.0)
         db.add(settings)
         await db.commit()
         await db.refresh(settings)
-        
     return settings
 
 async def update_settings(db: AsyncSession, data: schemas.UserSettingsUpdate):
@@ -76,9 +69,13 @@ async def update_settings(db: AsyncSession, data: schemas.UserSettingsUpdate):
     settings.salary_day = data.salary_day
     settings.budget_type = data.budget_type
     settings.budget_value = data.budget_value
-    settings.monthly_budget = data.budget_value 
-    
+    if data.ignored_categories is not None: settings.ignored_categories = ",".join(data.ignored_categories)
+    else: settings.ignored_categories = ""
+    if data.income_categories is not None: settings.income_categories = ",".join(data.income_categories)
+    else: settings.income_categories = ""
+    settings.view_cycle_offset = data.view_cycle_offset
     await db.commit()
+    await db.refresh(settings)
     return settings
 
 def get_adjusted_payday(year: int, month: int, base_day: int) -> date:
@@ -98,208 +95,270 @@ def get_adjusted_payday(year: int, month: int, base_day: int) -> date:
             return target_date
         target_date -= timedelta(days=1)
 
-def calculate_cycle_dates(salary_day: int):
+# ==========================================
+# 🗓️ HELPER: DATE CALCULATIONS
+# ==========================================
+def get_adjusted_payday(year: int, month: int, salary_day: int) -> date:
+    """Adjusts the salary day if it falls on a weekend."""
+    try:
+        base_date = date(year, month, salary_day)
+    except ValueError:
+        if month == 12: base_date = date(year + 1, 1, 1) - timedelta(days=1)
+        else: base_date = date(year, month + 1, 1) - timedelta(days=1)
+
+    weekday = base_date.weekday()
+    if weekday == 5: return base_date - timedelta(days=1)
+    elif weekday == 6: return base_date - timedelta(days=2)
+    return base_date
+
+def get_theoretical_cycle_dates(salary_day: int, offset: int):
+    """Calculates standard Start/End dates based on offset."""
     today = date.today()
-    
-    # 1. Find the potential payday in the CURRENT month
     this_month_payday = get_adjusted_payday(today.year, today.month, salary_day)
     
-    # 2. Logic: If today is BEFORE this month's payday, we are still in the previous month's cycle
-    if today < this_month_payday:
-        # Start Date = Last Month's Payday
-        prev_month_year = today.year - 1 if today.month == 1 else today.year
-        prev_month = 12 if today.month == 1 else today.month - 1
-        start_date = get_adjusted_payday(prev_month_year, prev_month, salary_day)
-        
-        # End Date = Day BEFORE this month's payday
-        end_date = this_month_payday - timedelta(days=1)
-        
+    if today >= this_month_payday:
+        anchor_month, anchor_year = today.month, today.year
     else:
-        # We are IN the cycle that started this month
-        start_date = this_month_payday
+        anchor_month = 12 if today.month == 1 else today.month - 1
+        anchor_year = today.year - 1 if today.month == 1 else today.year
+
+    total_months_linear = (anchor_year * 12) + (anchor_month - 1)
+    target_total_months = total_months_linear - offset
+    
+    target_year = target_total_months // 12
+    target_month = (target_total_months % 12) + 1
+    
+    start_date = get_adjusted_payday(target_year, target_month, salary_day)
+    
+    next_total = target_total_months + 1
+    next_y, next_m = next_total // 12, (next_total % 12) + 1
+    next_start = get_adjusted_payday(next_y, next_m, salary_day)
+    end_date = next_start - timedelta(days=1)
+    
+    return start_date, end_date
+
+# 🔒 SECURE LOGIC: PREVENT DOUBLE SALARY
+async def get_secure_cycle_dates(db: AsyncSession, salary_day: int, offset: int, income_list: list):
+    """
+    1. Calculates theoretical dates.
+    2. Scans the last few days of the cycle for an 'Early Salary'.
+    3. If found, snaps the end_date to prevent double counting.
+    """
+    start_date, end_date = get_theoretical_cycle_dates(salary_day, offset)
+    
+    if not income_list:
+        return start_date, end_date
+
+    # Look for 'Early Salary' in the last 10 days of the cycle
+    # (e.g., If cycle ends 25th, check 15th to 25th for a Credit in Income Categories)
+    scan_start = end_date - timedelta(days=10)
+    
+    stmt = (
+        select(models.Transaction.txn_date)
+        .join(models.Category, models.Transaction.category_id == models.Category.id)
+        .where(
+            models.Transaction.txn_date >= scan_start,
+            models.Transaction.txn_date <= end_date,
+            models.Transaction.payment_type == 'credit',
+            models.Category.name.in_(income_list)
+        )
+        .order_by(models.Transaction.txn_date.asc()) # Find the FIRST occurrence in the danger zone
+        .limit(1)
+    )
+    
+    result = await db.execute(stmt)
+    early_salary_date = result.scalar_one_or_none()
+
+    if early_salary_date:
+        # 🚨 Early Salary Detected!
+        # If we find a salary on the 24th, and our cycle ends on the 25th,
+        # we MUST end our cycle on the 23rd to push that salary to the next cycle.
+        print(f"[CYCLE FIX] Early salary detected on {early_salary_date}. Snapping end date.")
         
-        # End Date = Day BEFORE next month's payday
-        next_month_year = today.year + 1 if today.month == 12 else today.year
-        next_month = 1 if today.month == 12 else today.month + 1
-        next_month_payday = get_adjusted_payday(next_month_year, next_month, salary_day)
-        end_date = next_month_payday - timedelta(days=1)
-        
+        # Ensure we don't snap if the salary is actually the START of the current cycle (edge case for short cycles)
+        if early_salary_date > start_date + timedelta(days=5):
+            end_date = early_salary_date - timedelta(days=1)
+
     return start_date, end_date
 
 # ==========================================
-# 📊 SMART DASHBOARD SERVICES
+# 📊 CORE LOGIC
 # ==========================================
-async def get_financial_health(db: AsyncSession):
-    # 1. Get Settings
+async def calculate_financial_health(db: AsyncSession, offset: int = 0):
     settings = await get_or_create_settings(db)
+    ignored_list = [x.strip() for x in settings.ignored_categories.split(',') if x.strip()] if settings.ignored_categories else []
+    income_list = [x.strip() for x in settings.income_categories.split(',') if x.strip()] if settings.income_categories else []
+
+    # 1. Get SECURE Dates (Applies the cut-off logic)
+    start_date, end_date = await get_secure_cycle_dates(db, settings.salary_day, offset, income_list)
+    prev_start_date, prev_end_date = await get_secure_cycle_dates(db, settings.salary_day, offset + 1, income_list)
+
+    print(f"[DEBUG] Computed Cycle: {start_date} -> {end_date}")
+
+    # 2. Fetch Transactions (Using new secure dates)
+    stmt = (
+        select(
+            models.Transaction.amount, models.Transaction.txn_date, models.Transaction.payment_type,
+            models.Transaction.merchant_name, models.Category.name.label("category_name"), models.Category.color.label("category_color")
+        )
+        .join(models.Category, models.Transaction.category_id == models.Category.id)
+        .where(models.Transaction.txn_date >= start_date, models.Transaction.txn_date <= end_date)
+        .order_by(models.Transaction.txn_date.asc())
+    )
+    result = await db.execute(stmt)
+    transactions = result.mappings().all()
+
+    # 3. Fetch Previous (Using new secure dates)
+    stmt_prev = (
+        select(models.Transaction.amount, models.Transaction.txn_date, models.Transaction.payment_type, models.Category.name.label("category_name"))
+        .join(models.Category, models.Transaction.category_id == models.Category.id)
+        .where(models.Transaction.txn_date >= prev_start_date, models.Transaction.txn_date <= prev_end_date)
+    )
+    result_prev = await db.execute(stmt_prev)
+    prev_transactions = result_prev.mappings().all()
+
+    # 4. Process Current Data
+    total_spend = 0.0
+    total_income = 0.0
+    category_map = {}
+    spending_trend_data = {} 
     
-    cycle_start = None
-    cycle_end = None
-    total_budget = 0.0
+    for txn in transactions:
+        amount = float(txn.amount)
+        p_type = txn.payment_type.upper() if txn.payment_type else "UNKNOWN"
+        cat_name = txn.category_name
+
+        if cat_name in ignored_list: continue
+        
+        # Calculate Income
+        if cat_name in income_list:
+            if p_type == "CREDIT": total_income += amount
+            elif p_type == "DEBIT": total_income -= amount
+            continue
+
+        if p_type == "DEBIT":
+            total_spend += amount
+            if cat_name not in category_map: category_map[cat_name] = {"value": 0.0, "color": txn.category_color}
+            category_map[cat_name]["value"] += amount
+            
+            day_idx = (txn.txn_date - start_date).days + 1
+            spending_trend_data[day_idx] = spending_trend_data.get(day_idx, 0) + amount
+
+        elif p_type == "CREDIT":
+            total_spend -= amount
+            if cat_name in category_map: category_map[cat_name]["value"] -= amount
+            day_idx = (txn.txn_date - start_date).days + 1
+            spending_trend_data[day_idx] = spending_trend_data.get(day_idx, 0) - amount
+
+    # 5. Process Previous Data
+    days_in_cycle = (end_date - start_date).days + 1
+    today = date.today()
     
-    # --- 2. DETERMINE CYCLE & BUDGET ---
-    if settings.budget_type == "PERCENTAGE":
-        # Look for most recent 'Income' transaction
-        stmt = (
-            select(models.Transaction)
-            .join(models.Category)
-            .where(models.Category.is_income == True)
-            .order_by(desc(models.Transaction.txn_date))
+    if offset > 0:
+        days_passed = days_in_cycle
+    else:
+        days_passed = max(0, min((today - start_date).days, days_in_cycle))
+        
+    days_left = max(0, days_in_cycle - days_passed)
+
+    prev_trend_data = {}
+    prev_spend_upto_now = 0.0
+    
+    for txn in prev_transactions:
+        p_type = txn.payment_type.upper() if txn.payment_type else "UNKNOWN"
+        cat_name = txn.category_name
+        if cat_name in ignored_list or cat_name in income_list: continue
+        
+        amount = float(txn.amount)
+        day_idx = (txn.txn_date - prev_start_date).days + 1
+        val = amount if p_type == "DEBIT" else -amount
+        
+        prev_trend_data[day_idx] = prev_trend_data.get(day_idx, 0) + val
+        
+        if day_idx <= days_passed:
+            prev_spend_upto_now += val
+
+    # 6. Fallback Logic: Zero Income Detection
+    # If standard Total Income is 0 (maybe salary came BEFORE the cycle start date), look back 7 days.
+    calc_income_base = total_income
+    
+    if settings.budget_type == "PERCENTAGE" and calc_income_base == 0:
+        lookback_stmt = (
+            select(models.Transaction.amount)
+            .join(models.Category, models.Transaction.category_id == models.Category.id)
+            .where(
+                models.Transaction.txn_date >= start_date - timedelta(days=7),
+                models.Transaction.txn_date < start_date,
+                models.Transaction.payment_type == 'credit',
+                models.Category.name.in_(income_list)
+            )
+            .order_by(models.Transaction.txn_date.desc())
             .limit(1)
         )
-        result = await db.execute(stmt)
-        last_salary_txn = result.scalar_one_or_none()
-        
-        if last_salary_txn:
-            cycle_start = last_salary_txn.txn_date
-            # Simple projection: 30 days or until next expected 25th? 
-            # Let's use 30 days for dynamic to be safe
-            try:
-                cycle_end = cycle_start.replace(month=cycle_start.month + 1) - timedelta(days=1)
-            except ValueError:
-                cycle_end = cycle_start.replace(year=cycle_start.year + 1, month=1) - timedelta(days=1)
+        row = await db.scalar(lookback_stmt)
+        if row:
+            calc_income_base = float(row)
+            print(f"[DEBUG] Fallback income found: {calc_income_base}")
 
-            total_budget = last_salary_txn.amount * (settings.budget_value / 100.0)
-        else:
-            # Fallback to Fixed logic if no salary found
-            cycle_start, cycle_end = calculate_cycle_dates(settings.salary_day)
-            total_budget = 50000.0 
-    else:
-        # FIXED MODE
-        cycle_start, cycle_end = calculate_cycle_dates(settings.salary_day)
-        total_budget = settings.budget_value
+    # 7. Budget Calculation
+    budget_limit = float(settings.budget_value)
+    if settings.budget_type == "PERCENTAGE":
+        budget_limit = (calc_income_base * settings.budget_value) / 100
 
-    start_date = cycle_start
-    end_date = cycle_end
-    today = date.today()
+    budget_remaining = budget_limit - total_spend
+    safe_daily = budget_remaining / days_left if days_left > 0 and budget_remaining > 0 else 0.0
 
-    # --- 3. TIME CALCULATIONS ---
-    days_in_cycle = (end_date - start_date).days + 1
-    days_passed = (today - start_date).days
-    
-    # Clamp values
-    if days_passed < 0: days_passed = 0
-    if days_passed > days_in_cycle: days_passed = days_in_cycle
-        
-    days_left = days_in_cycle - days_passed
-
-    # --- 4. CURRENT SPEND ---
-    # Use ilike for 'DEBIT' to catch 'Debit', 'debit'
-    res_total = await db.execute(
-        select(func.sum(models.Transaction.amount))
-        .where(models.Transaction.txn_date >= start_date, 
-               models.Transaction.txn_date <= end_date,
-               models.Transaction.payment_type.ilike("DEBIT"))
-    )
-    total_spend = res_total.scalar() or 0.0
-    
-    budget_remaining = total_budget - total_spend
-    safe_daily = budget_remaining / days_left if days_left > 0 else 0.0
-    
-    # Burn Rate Calculation
-    ideal_spend_so_far = (total_budget / days_in_cycle) * days_passed
-    
-    if total_spend > total_budget:
-        status = "Critical"
-    elif total_spend > ideal_spend_so_far * 1.1:
-        status = "Red"
-    elif total_spend > ideal_spend_so_far:
-        status = "Yellow"
-    else:
-        status = "Green"
-
-    projected_spend = (total_spend / days_passed) * days_in_cycle if days_passed > 0 else total_spend
-
-    # --- 5. PREVIOUS CYCLE COMPARISON (Fixing the NameError) ---
-    # Calculate "Spend to Date" for previous cycle (same number of days passed)
-    # Logic: Go back ~20 days to find a date in the previous month, then find that month's payday
-    prev_month_ref = start_date - timedelta(days=20)
-    prev_cycle_start = get_adjusted_payday(prev_month_ref.year, prev_month_ref.month, settings.salary_day)
-    
-    # End of prev cycle is the day before current cycle start
-    prev_cycle_end = start_date - timedelta(days=1)
-    
-    # If we are on Day 5, we want Day 1-5 of previous cycle.
-    prev_to_date_end = prev_cycle_start + timedelta(days=days_passed)
-    
-    # Cap it: If current cycle is longer than prev cycle, don't go past prev cycle end
-    if prev_to_date_end > prev_cycle_end: 
-        prev_to_date_end = prev_cycle_end
-    
-    res_prev_todate = await db.execute(
-         select(func.sum(models.Transaction.amount))
-        .where(models.Transaction.txn_date >= prev_cycle_start, 
-               models.Transaction.txn_date <= prev_to_date_end,
-               models.Transaction.payment_type.ilike("DEBIT"))
-    )
-    prev_spend_todate = res_prev_todate.scalar() or 0.0
-    
+    # 8. Comparison Percent
     spend_diff_percent = 0.0
-    if prev_spend_todate > 0:
-        spend_diff_percent = ((total_spend - prev_spend_todate) / prev_spend_todate) * 100
+    if prev_spend_upto_now > 0:
+        spend_diff_percent = ((total_spend - prev_spend_upto_now) / prev_spend_upto_now) * 100
+    elif total_spend > 0:
+        spend_diff_percent = 100.0
 
-    # --- 6. TREND GRAPH DATA ---
-    stmt_trend = (
-        select(models.Transaction.txn_date, func.sum(models.Transaction.amount))
-        .where(models.Transaction.txn_date >= start_date, 
-               models.Transaction.txn_date <= end_date,
-               models.Transaction.payment_type.ilike("DEBIT"))
-        .group_by(models.Transaction.txn_date)
-        .order_by(models.Transaction.txn_date)
-    )
-    res_trend = await db.execute(stmt_trend)
-    daily_spends = res_trend.all()
+    # 9. Graph Building
+    trend_list = []
+    max_days = max(days_in_cycle, (prev_end_date - prev_start_date).days + 1)
     
-    spend_map = {d: amt for d, amt in daily_spends}
-    spending_trend = []
-    cumulative_actual = 0.0
+    cum_actual = 0.0
+    cum_prev = 0.0
+    ideal_daily = budget_limit / days_in_cycle if days_in_cycle else 0
     
-    current_iter_date = start_date
-    for i in range(days_in_cycle):
-        day_num = i + 1
-        ideal_val = (total_budget / days_in_cycle) * day_num
+    for i in range(1, max_days + 1):
+        show_actual = True
+        if offset == 0 and i > days_passed: show_actual = False
+        if i > days_in_cycle: show_actual = False
         
-        actual_val = None
-        if current_iter_date <= today:
-            day_spend = spend_map.get(current_iter_date, 0.0)
-            cumulative_actual += day_spend
-            actual_val = cumulative_actual
-            
-        spending_trend.append({
-            "day": day_num,
-            "date": current_iter_date.isoformat(),
-            "actual": actual_val,
-            "ideal": round(ideal_val, 2)
+        cum_actual += spending_trend_data.get(i, 0.0)
+        cum_prev += prev_trend_data.get(i, 0.0)
+        show_prev = i <= (prev_end_date - prev_start_date).days + 1
+        
+        current_trend_date = start_date + timedelta(days=i-1)
+        
+        trend_list.append({
+            "day": i,
+            "date": current_trend_date.strftime("%d %b"),
+            "actual": cum_actual if show_actual else None,
+            "previous": cum_prev if show_prev else None,
+            "ideal": round(ideal_daily * i, 2) if i <= days_in_cycle else None
         })
-        current_iter_date += timedelta(days=1)
 
-    # --- 7. CATEGORIES & RECENT ---
+    # 10. Top Categories
+    cat_breakdown = [{"name": k, "value": v["value"], "color": v["color"]} for k, v in category_map.items() if v["value"] > 0]
+    cat_breakdown.sort(key=lambda x: x["value"], reverse=True)
+
+    # 11. Recent Transactions
     stmt_recent = (
-        select(models.Transaction, models.Category)
-        .outerjoin(models.Category)
-        .order_by(desc(models.Transaction.txn_date))
-        .limit(5)
+        select(
+            models.Transaction.id, models.Transaction.amount, models.Transaction.txn_date, 
+            models.Transaction.payment_type, models.Transaction.merchant_name, models.Transaction.payment_mode, 
+            models.Transaction.bank_name, models.Category.name.label("category_name"), models.Category.color.label("category_color")
+        )
+        .join(models.Category, models.Transaction.category_id == models.Category.id)
+        .where(models.Transaction.txn_date >= start_date, models.Transaction.txn_date <= end_date)
+        .order_by(models.Transaction.txn_date.desc()).limit(5)
     )
-    res_recent = await db.execute(stmt_recent)
-    recent_flat = []
-    for txn, cat in res_recent.all():
-        t_dict = txn.__dict__
-        t_dict['category_name'] = cat.name if cat else "Uncategorized"
-        t_dict['category_color'] = cat.color if cat else "#cbd5e1"
-        recent_flat.append(schemas.TransactionOut(**t_dict))
-
-    stmt_breakdown = (
-        select(models.Category.name, func.sum(models.Transaction.amount), models.Category.color)
-        .join(models.Transaction)
-        .where(models.Transaction.txn_date >= start_date, 
-               models.Transaction.txn_date <= end_date,
-               models.Transaction.payment_type.ilike("DEBIT"))
-        .group_by(models.Category.name, models.Category.color)
-        .order_by(desc(func.sum(models.Transaction.amount)))
-        .limit(5)
-    )
-    res_bd = await db.execute(stmt_breakdown)
-    breakdown = [{"name": r[0], "value": r[1], "color": r[2]} for r in res_bd.all()]
+    result_recent = await db.execute(stmt_recent)
+    recent_transactions = result_recent.mappings().all()
 
     return {
         "cycle_start": start_date,
@@ -307,26 +366,23 @@ async def get_financial_health(db: AsyncSession):
         "days_in_cycle": days_in_cycle,
         "days_passed": days_passed,
         "days_left": days_left,
-        "total_budget": total_budget,
-        "total_spend": total_spend,
-        "budget_remaining": budget_remaining,
-        "safe_to_spend_daily": safe_daily,
-        "burn_rate_status": status,
-        "projected_spend": projected_spend,
-        
-        # ✅ FIX: These variables are now correctly defined above
-        "prev_cycle_spend_todate": prev_spend_todate,
-        "spend_diff_percent": spend_diff_percent,
-        
-        "spending_trend": spending_trend,
-        "recent_transactions": recent_flat,
-        "category_breakdown": breakdown
+        "total_budget": round(budget_limit, 2),
+        "total_spend": round(total_spend, 2),
+        "budget_remaining": round(budget_remaining, 2),
+        "safe_to_spend_daily": round(safe_daily, 2),
+        "burn_rate_status": "Green", 
+        "projected_spend": round((total_spend / days_passed) * days_in_cycle if days_passed > 0 else 0, 2),
+        "prev_cycle_spend_todate": round(prev_spend_upto_now, 2),
+        "spend_diff_percent": round(spend_diff_percent, 1),
+        "recent_transactions": recent_transactions,
+        "category_breakdown": cat_breakdown,
+        "spending_trend": trend_list,
+        "view_mode": "Current" if offset == 0 else f"History (-{offset})"
     }
 
 # ==========================================
 # 🧠 RULE ENGINE & OTHER SERVICES
 # ==========================================
-# ... (Keep the rest of the file: preview_rule_changes, create_rule, etc. unchanged) ...
 async def preview_rule_changes(db: AsyncSession, pattern: str, match_type: str):
     query = select(models.Transaction)
     if match_type == "CONTAINS":
@@ -372,15 +428,12 @@ async def apply_rule_historical(db: AsyncSession, rule: models.TransactionRule, 
     await db.commit()
 
 async def get_all_rules(db: AsyncSession):
-    stmt = select(models.TransactionRule, models.Category).join(models.Category)
+    stmt = (
+        select(models.TransactionRule.id, models.TransactionRule.pattern, models.TransactionRule.new_merchant_name, models.TransactionRule.match_type, models.TransactionRule.category_id, models.Category.name.label("category_name"), models.Category.color.label("category_color"))
+        .join(models.Category, models.TransactionRule.category_id == models.Category.id)
+    )
     result = await db.execute(stmt)
-    rules = []
-    for r, c in result:
-        r_dict = r.__dict__
-        r_dict['category_name'] = c.name
-        r_dict['category_color'] = c.color
-        rules.append(r_dict)
-    return rules
+    return result.mappings().all()
 
 async def apply_rules_to_single_transaction(db: AsyncSession, txn: models.Transaction):
     rules_stmt = select(models.TransactionRule)
@@ -398,30 +451,94 @@ async def apply_rules_to_single_transaction(db: AsyncSession, txn: models.Transa
             txn.category_id = rule.category_id
             break 
 
-async def get_filtered_transactions(db: AsyncSession, page: int, limit: int, search: Optional[str], start_date: Optional[date], end_date: Optional[date], payment_type: Optional[str], sort_by: str, sort_order: str) -> schemas.PaginatedResponse:
-    query = select(models.Transaction, models.Category).outerjoin(models.Category)
-    if search: query = query.where(models.Transaction.merchant_name.ilike(f"%{search}%"))
-    if start_date: query = query.where(models.Transaction.txn_date >= start_date)
-    if end_date: query = query.where(models.Transaction.txn_date <= end_date)
-    if payment_type and payment_type.upper() != "ALL": query = query.where(models.Transaction.payment_type.ilike(payment_type))
-    count_stmt = select(func.count()).select_from(query.subquery())
-    total_result = await db.execute(count_stmt)
-    total_records = total_result.scalar() or 0
+async def get_filtered_transactions(
+    db: AsyncSession, 
+    page: int, 
+    limit: int, 
+    search: Optional[str] = None, 
+    start_date: Optional[date] = None, 
+    end_date: Optional[date] = None, 
+    payment_type: Optional[str] = None,
+    sort_by: str = "txn_date",
+    sort_order: str = "desc"
+):
+    # 1. Build Filter Conditions
+    filters = []
+    
+    if search:
+        search_fmt = f"%{search}%"
+        filters.append(or_(
+            models.Transaction.merchant_name.ilike(search_fmt),
+            models.Category.name.ilike(search_fmt),
+            models.Transaction.bank_name.ilike(search_fmt)
+        ))
+    
+    if start_date:
+        filters.append(models.Transaction.txn_date >= start_date)
+    if end_date:
+        filters.append(models.Transaction.txn_date <= end_date)
+    if payment_type and payment_type.upper() != "ALL":
+        filters.append(models.Transaction.payment_type == payment_type.lower())
+
+    # 2. Query for Total Count
+    count_stmt = (
+        select(func.count())
+        .select_from(models.Transaction)
+        .join(models.Category, models.Transaction.category_id == models.Category.id)
+    )
+    for f in filters:
+        count_stmt = count_stmt.where(f)
+        
+    total_count = await db.scalar(count_stmt)
+
+    # 3. Query for Data
+    stmt = (
+        select(
+            models.Transaction.id,
+            models.Transaction.amount,
+            models.Transaction.txn_date,
+            models.Transaction.payment_type,
+            models.Transaction.merchant_name,
+            models.Transaction.payment_mode,
+            models.Transaction.bank_name,
+            models.Transaction.upi_transaction_id,
+            models.Transaction.category_id,
+            models.Category.name.label("category_name"),   
+            models.Category.color.label("category_color")  
+        )
+        .join(models.Category, models.Transaction.category_id == models.Category.id)
+    )
+
+    for f in filters:
+        stmt = stmt.where(f)
+
+    # 4. Apply Sorting
     sort_column = getattr(models.Transaction, sort_by, models.Transaction.txn_date)
-    if sort_order == "desc": query = query.order_by(desc(sort_column))
-    else: query = query.order_by(sort_column)
+    if sort_order == "asc":
+        stmt = stmt.order_by(sort_column.asc())
+    else:
+        stmt = stmt.order_by(sort_column.desc())
+
+    # 5. Apply Pagination
     offset = (page - 1) * limit
-    query = query.offset(offset).limit(limit)
-    result = await db.execute(query)
-    rows = result.all()
-    data = []
-    for txn, cat in rows:
-        txn_dict = schemas.TransactionOut.model_validate(txn)
-        if cat:
-            txn_dict.category_name = cat.name
-            txn_dict.category_color = cat.color
-        data.append(txn_dict)
-    return schemas.PaginatedResponse(data=data, total=total_records, page=page, limit=limit, total_pages=(total_records // limit) + (1 if total_records % limit > 0 else 0))
+    stmt = stmt.offset(offset).limit(limit)
+
+    # 6. Execute
+    result = await db.execute(stmt)
+    rows = result.mappings().all()
+    
+    # 7. Calculate Pagination Metadata
+    # Integer division ceiling logic to get total pages
+    total_pages = (total_count + limit - 1) // limit if limit > 0 else 0
+
+    # 8. Return Exact Schema Structure (✅ Fixes Validation Error)
+    return {
+        "data": [schemas.TransactionOut.model_validate(row) for row in rows], # Renamed 'items' -> 'data'
+        "total": total_count,
+        "page": page,
+        "limit": limit,         # Renamed 'size' -> 'limit'
+        "total_pages": total_pages # Added missing field
+    }
 
 async def scan_for_duplicates(db: AsyncSession) -> List[schemas.DuplicateGroup]:
     ignore_stmt = select(models.IgnoredDuplicate)
