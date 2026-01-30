@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import List
-from .. import schemas, services
+
 from ..database import get_db
+from .. import models, schemas, services
 
 router = APIRouter(prefix="/rules", tags=["rules"])
 
@@ -31,3 +33,17 @@ async def create_rule(rule: schemas.RuleCreate, db: AsyncSession = Depends(get_d
 @router.get("/", response_model=List[schemas.RuleOut])
 async def get_rules(db: AsyncSession = Depends(get_db)):
     return await services.get_all_rules(db)
+
+@router.delete("/{rule_id}")
+async def delete_rule(rule_id: int, db: AsyncSession = Depends(get_db)):
+    # Check if rule exists
+    result = await db.execute(select(models.TransactionRule).where(models.TransactionRule.id == rule_id))
+    rule = result.scalar_one_or_none()
+    
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    
+    await db.delete(rule)
+    await db.commit()
+    
+    return {"message": "Rule deleted successfully"}

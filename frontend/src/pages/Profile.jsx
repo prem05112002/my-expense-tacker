@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import api from '../api/axios';
-import { Save, Trash2, Calendar, DollarSign, EyeOff, ChevronDown, Check, X } from 'lucide-react';
+import { Save, Trash2, Calendar, DollarSign, EyeOff, ChevronDown, Check, X, AlertTriangle } from 'lucide-react';
 
 // ... (MultiSelectDropdown Component remains the same) ...
 const MultiSelectDropdown = ({ label, options, selected, onChange, placeholder = "Select..." }) => {
@@ -52,6 +52,7 @@ const Profile = () => {
     const [loading, setLoading] = useState(true);
     const [rules, setRules] = useState([]);
     const [allCategories, setAllCategories] = useState([]);
+    const [deleteTarget, setDeleteTarget] = useState(null);
     
     const [settings, setSettings] = useState({
         salary_day: 1,
@@ -87,9 +88,15 @@ const Profile = () => {
         try { await api.put('/dashboard/settings', settings); alert("Settings Saved!"); } catch (e) { alert("Error saving settings"); }
     };
 
-    const deleteRule = async (id) => {
-        if (!window.confirm("Delete this rule?")) return;
-        try { await api.delete(`/rules/${id}`); setRules(rules.filter(r => r.id !== id)); } catch (e) { alert("Failed to delete rule"); }
+    const confirmDeleteRule = async () => {
+        if (!deleteTarget) return;
+        try { 
+            await api.delete(`/rules/${deleteTarget.id}`); 
+            setRules(rules.filter(r => r.id !== deleteTarget.id)); 
+            setDeleteTarget(null); // Close modal
+        } catch (e) { 
+            alert("Failed to delete rule"); 
+        }
     };
 
     if (loading) return <div className="p-10 text-white animate-pulse">Loading Profile...</div>;
@@ -147,26 +154,33 @@ const Profile = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-white/5">
-                                {rules.length > 0 ? rules.map(rule => (
-                                    <tr key={rule.id} className="hover:bg-white/5 transition-colors group">
-                                        <td className="px-4 py-3 font-mono text-white">
-                                            <span className="bg-slate-700 text-slate-200 px-1.5 py-0.5 rounded text-[10px] mr-2">{rule.match_type}</span>
-                                            {rule.pattern}
-                                        </td>
-                                        <td className="px-4 py-3 text-white font-medium">{rule.new_merchant_name}</td>
-                                        <td className="px-4 py-3">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: rule.category_color || '#666' }}></div>
-                                                <span style={{ color: rule.category_color || '#999' }}>{rule.category_name}</span>
-                                            </div>
-                                        </td>
-                                        <td className="px-4 py-3 text-right">
-                                            <button onClick={() => deleteRule(rule.id)} className="text-slate-500 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100">
-                                                <Trash2 size={16} />
-                                            </button>
-                                        </td>
-                                    </tr>
-                                )) : (
+                                {rules.length > 0 ? (
+                                    rules.map((rule) => (
+                                        <tr key={rule.id} className="hover:bg-white/[0.02] transition-colors group">
+                                            <td className="px-4 py-3 text-white font-medium">{rule.pattern}</td>
+                                            
+                                            {/* ✅ FIX: Use rule.newMerchantName instead of rule.new_merchant_name */}
+                                            <td className="px-4 py-3 text-white font-medium">
+                                                {rule.newMerchantName || rule.new_merchant_name}
+                                            </td>
+
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: rule.category_color || '#666' }}></div>
+                                                    <span style={{ color: rule.category_color || '#999' }}>{rule.category_name}</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3 text-right">
+                                            <button 
+                                                onClick={() => setDeleteTarget(rule)} 
+                                                className="text-slate-500 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                                            >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
                                     <tr>
                                         <td colSpan="4" className="text-center py-10 text-slate-500">No automation rules found.</td>
                                     </tr>
@@ -176,6 +190,42 @@ const Profile = () => {
                     </div>
                 </div>
             </div>
+            {deleteTarget && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="bg-[#111] border border-white/10 p-6 rounded-2xl w-full max-w-sm shadow-2xl transform transition-all scale-100">
+                        <div className="flex items-center gap-3 mb-4 text-red-400">
+                            <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center border border-red-500/20">
+                                <AlertTriangle size={20} />
+                            </div>
+                            <h3 className="text-lg font-bold text-white">Delete Rule?</h3>
+                        </div>
+                        
+                        <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+                            Are you sure you want to delete the automation rule for 
+                            <span className="text-white font-mono bg-white/10 px-1.5 py-0.5 rounded mx-1.5 border border-white/10">
+                                {deleteTarget.pattern}
+                            </span>? 
+                            This action cannot be undone.
+                        </p>
+                        
+                        <div className="flex gap-3 justify-end">
+                            <button 
+                                onClick={() => setDeleteTarget(null)} 
+                                className="px-4 py-2 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 text-sm font-medium transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={confirmDeleteRule} 
+                                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-bold shadow-lg shadow-red-500/20 transition-all flex items-center gap-2"
+                            >
+                                <Trash2 size={14} />
+                                Delete Rule
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
