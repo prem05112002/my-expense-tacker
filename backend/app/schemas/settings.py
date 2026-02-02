@@ -1,14 +1,28 @@
 from pydantic import BaseModel, ConfigDict, field_validator
-from typing import List
+from typing import Any, List
 
 class UserSettingsUpdate(BaseModel):
     salary_day: int
-    budget_type: str 
+    budget_type: str
     budget_value: float
     # These match the frontend "MultiSelect"
-    ignored_categories: List[str] = []   
-    income_categories: List[str] = []    
+    ignored_categories: List[str] = []
+    income_categories: List[str] = []
     view_cycle_offset: int = 0
+
+    @field_validator('salary_day')
+    @classmethod
+    def validate_salary_day(cls, v: int) -> int:
+        if not 1 <= v <= 31:
+            raise ValueError('salary_day must be between 1 and 31')
+        return v
+
+    @field_validator('budget_value')
+    @classmethod
+    def validate_budget_value(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError('budget_value must be >= 0')
+        return v
 
 class UserSettingsOut(BaseModel):
     id: int

@@ -17,3 +17,9 @@ from .rules import (
 )
 from .transactions import get_next_available_color, get_filtered_transactions, update_transaction_logic, get_staging_transactions, dismiss_staging_item, convert_staging_to_transaction
 from .subscription import create_subscription_from_transaction
+from .trends import (
+    get_trends_overview,
+    get_category_trend_detail,
+    simulate_affordability
+)
+from .chatbot import process_chat_message, get_rate_limit_status

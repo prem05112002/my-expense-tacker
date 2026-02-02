@@ -1,5 +1,6 @@
 import holidays
 from datetime import date, timedelta
+from typing import Any, Dict, List, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, and_, or_
 from .. import models, schemas
@@ -243,6 +244,36 @@ def _calculate_previous_spend_todate(
 # 3. GRAPH & UI BUILDERS
 # ==========================================
 
+def _calculate_burn_rate_status(
+    total_spend: float,
+    budget_limit: float,
+    days_passed: int,
+    days_in_cycle: int
+) -> str:
+    """
+    Calculate burn rate status based on budget used vs time passed.
+    Returns: 'Over Budget', 'High Burn', 'Caution', or 'On Track'
+    """
+    if budget_limit <= 0:
+        return "On Track"
+
+    budget_remaining = budget_limit - total_spend
+    if budget_remaining < 0:
+        return "Over Budget"
+
+    if days_in_cycle <= 0 or days_passed <= 0:
+        return "On Track"
+
+    budget_used_pct = (total_spend / budget_limit) * 100
+    time_passed_pct = (days_passed / days_in_cycle) * 100
+
+    if budget_used_pct > time_passed_pct + 15:
+        return "High Burn"
+    elif budget_used_pct > time_passed_pct + 5:
+        return "Caution"
+    return "On Track"
+
+
 def _build_trend_graph(
     start_date: date,
     days_in_cycle: int,
@@ -255,8 +286,8 @@ def _build_trend_graph(
 ) -> List[Dict[str, Any]]:
     """Generates the list of data points for the frontend Line/Area chart."""
     trend_list = []
-    max_days = max(days_in_cycle, prev_duration)
-    ideal_daily = budget_limit / days_in_cycle if days_in_cycle else 0
+    max_days = max(days_in_cycle, prev_duration) if days_in_cycle > 0 or prev_duration > 0 else 1
+    ideal_daily = budget_limit / days_in_cycle if days_in_cycle > 0 else 0
     
     cum_actual = 0.0
     cum_prev = 0.0
@@ -334,6 +365,11 @@ async def calculate_financial_health(db: AsyncSession, offset: int = 0):
     days_left = max(0, days_in_cycle - days_passed)
     safe_daily = budget_remaining / days_left if days_left > 0 and budget_remaining > 0 else 0.0
 
+    # Calculate burn rate status
+    burn_rate_status = _calculate_burn_rate_status(
+        total_spend, budget_limit, days_passed, days_in_cycle
+    )
+
     # Compare vs Previous
     if prev_spend_upto_now > 0:
         diff_percent = ((total_spend - prev_spend_upto_now) / prev_spend_upto_now) * 100
@@ -363,8 +399,8 @@ async def calculate_financial_health(db: AsyncSession, offset: int = 0):
         "total_spend": round(total_spend, 2),
         "budget_remaining": round(budget_remaining, 2),
         "safe_to_spend_daily": round(safe_daily, 2),
-        "burn_rate_status": "Green", 
-        "projected_spend": round((total_spend / days_passed) * days_in_cycle if days_passed > 0 else 0, 2),
+        "burn_rate_status": burn_rate_status,
+        "projected_spend": round((total_spend / days_passed) * days_in_cycle if days_passed > 0 and days_in_cycle > 0 else 0, 2),
         "prev_cycle_spend_todate": round(prev_spend_upto_now, 2),
         "spend_diff_percent": round(diff_percent, 1),
         "recent_transactions": recent_txns,
