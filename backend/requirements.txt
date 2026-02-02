@@ -6,3 +6,4 @@ pydantic-settings
 greenlet
 rapidfuzz
 holidays
+numpy

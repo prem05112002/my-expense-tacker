@@ -1,9 +1,10 @@
+from re import sub
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from .database import init_db
-from .routers import transactions, dashboard, categories, staging, rules
+from .routers import transactions, dashboard, categories, staging, rules, subscription
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -29,6 +30,7 @@ app.include_router(transactions.router)
 app.include_router(categories.router)
 app.include_router(staging.router)
 app.include_router(rules.router)
+app.include_router(subscription.router)
 
 @app.get("/")
 def read_root():

@@ -2,7 +2,7 @@ from .analytics import (
     get_adjusted_payday, 
     get_theoretical_cycle_dates, 
     get_secure_cycle_dates, # <--- ✅ Add this
-    calculate_financial_health    # <--- Likely needed by Settings router
+    calculate_financial_health,    # <--- Likely needed by Settings router
 )
 from .duplicates import scan_for_duplicates, resolve_duplicate_pair
 from .etl import move_email_in_background
@@ -16,3 +16,4 @@ from .rules import (
     update_settings
 )
 from .transactions import get_next_available_color, get_filtered_transactions, update_transaction_logic, get_staging_transactions, dismiss_staging_item, convert_staging_to_transaction
+from .subscription import create_subscription_from_transaction

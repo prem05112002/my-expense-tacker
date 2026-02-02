@@ -6,7 +6,7 @@ from typing import Optional
 from datetime import date
 from fastapi import BackgroundTasks
 from .. import models, schemas
-from .etl import move_email_in_background
+from .etl import move_email_in_background, NON_TXN_FOLDER
 
 COLOR_PALETTE = [
     "#ef4444", "#f97316", "#f59e0b", "#84cc16", "#10b981", "#06b6d4", 

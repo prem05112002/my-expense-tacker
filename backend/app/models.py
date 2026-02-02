@@ -63,3 +63,15 @@ class UserSettings(Base):
     ignored_categories = Column(String, default="") 
     income_categories = Column(String, default="Salary,Income") 
     view_cycle_offset = Column(Integer, default=0)
+
+class RecurringExpense(Base):
+    __tablename__ = "recurring_expenses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    merchant_name = Column(String, index=True)
+    amount = Column(Float)
+    frequency = Column(String)  # "MONTHLY", "YEARLY", "WEEKLY", "IRREGULAR"
+    next_due_date = Column(Date)
+    
+    # We link it to the specific transaction that triggered it, if needed
+    last_transaction_id = Column(Integer, ForeignKey("transactions.id"), nullable=True)

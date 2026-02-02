@@ -13,3 +13,4 @@ from .transactions import (
     TransactionOut, 
     TransactionUpdate
 )
+from .subscription import RecurringExpenseBase, RecurringExpenseOut, SubscriptionAction
