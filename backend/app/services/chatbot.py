@@ -1,12 +1,18 @@
 import os
 import re
 import httpx
+from pathlib import Path
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
+from dotenv import load_dotenv
 from .analytics import calculate_financial_health
 from .trends import get_trends_overview, simulate_affordability
 from ..schemas.trends import AffordabilitySimulation
+
+# Load environment variables from backend/.env
+_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+load_dotenv(_env_path)
 
 
 # Rate limiting state (in-memory - resets on server restart)
@@ -97,6 +103,8 @@ def detect_intent(query: str) -> Tuple[str, Dict[str, Any]]:
         match = re.search(pattern, query_lower)
         if match:
             category = match.group(1).strip()
+            # Remove trailing punctuation (?, !, ., etc.)
+            category = re.sub(r"[?!.,;:]+$", "", category).strip()
             return "category_spend", {"category": category}
 
     # Budget status patterns
@@ -149,7 +157,7 @@ async def _call_gemini_api(prompt: str, system_instruction: str = "") -> Optiona
     if not allowed:
         return f"Rate limit exceeded: {status.get('error', 'Try again later.')}"
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
 
     payload = {
         "contents": [
@@ -182,15 +190,21 @@ async def _call_gemini_api(prompt: str, system_instruction: str = "") -> Optiona
                     return parts[0].get("text", "")
             return None
     except httpx.HTTPStatusError as e:
-        return f"API error: {e.response.status_code}"
+        # Include response body for debugging
+        try:
+            error_detail = e.response.json().get("error", {}).get("message", "")
+        except Exception:
+            error_detail = e.response.text[:200] if e.response.text else ""
+        return f"API error: {e.response.status_code} - {error_detail}"
     except Exception as e:
         return f"Error calling LLM: {str(e)}"
 
 
-async def _extract_product_price(product_query: str) -> Tuple[Optional[str], Optional[float]]:
+async def _extract_product_price(product_query: str) -> Tuple[Optional[str], Optional[float], Optional[str]]:
     """
     Use LLM to extract product name and estimated price.
     Only the product name is sent to LLM, not financial data.
+    Returns (product, price, error_message).
     """
     prompt = f"""Extract the product name and estimate its price in INR from this query: "{product_query}"
 
@@ -205,22 +219,67 @@ Price: 0"""
 
     response = await _call_gemini_api(prompt)
     if not response:
-        return None, None
+        return None, None, "No response from LLM. Check if GEMINI_API_KEY is configured in backend/.env"
+
+    # Check if response is an error message from the API
+    error_prefixes = ["API error:", "Error calling LLM:", "Rate limit exceeded:"]
+    for prefix in error_prefixes:
+        if response.startswith(prefix):
+            return None, None, response
 
     product = None
     price = None
 
-    for line in response.strip().split("\n"):
-        if line.lower().startswith("product:"):
-            product = line.split(":", 1)[1].strip()
-        elif line.lower().startswith("price:"):
+    # More robust parsing - handle various response formats
+    response_text = response.strip()
+
+    # Try line-by-line parsing first
+    for line in response_text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+
+        line_lower = line.lower()
+
+        # Match product line (handle variations like "Product:", "**Product:**", etc.)
+        if "product" in line_lower and ":" in line:
+            # Extract everything after the first colon
+            product_part = line.split(":", 1)[1].strip()
+            # Remove markdown formatting if present
+            product_part = re.sub(r"[\*\#\_\`]", "", product_part).strip()
+            if product_part and product_part.lower() != "unknown":
+                product = product_part
+
+        # Match price line
+        elif "price" in line_lower and ":" in line:
             try:
-                price_str = line.split(":", 1)[1].strip()
-                price = float(re.sub(r"[^\d.]", "", price_str))
+                price_part = line.split(":", 1)[1].strip()
+                # Remove currency symbols, commas, and extract number
+                price_str = re.sub(r"[₹$,\s]", "", price_part)
+                # Find first number in the string
+                match = re.search(r"[\d.]+", price_str)
+                if match:
+                    price = float(match.group())
             except (ValueError, IndexError):
                 price = None
 
-    return product, price
+    # Fallback: try regex patterns on full response if line parsing failed
+    if not product:
+        product_match = re.search(r"product[:\s]+([^\n₹$\d]+)", response_text, re.IGNORECASE)
+        if product_match:
+            product = product_match.group(1).strip()
+            product = re.sub(r"[\*\#\_\`]", "", product).strip()
+
+    if not price:
+        # Look for any number preceded by ₹ or followed by INR/rupees
+        price_match = re.search(r"₹?\s*([\d,]+(?:\.\d+)?)\s*(?:INR|rupees?)?", response_text, re.IGNORECASE)
+        if price_match:
+            try:
+                price = float(price_match.group(1).replace(",", ""))
+            except ValueError:
+                price = None
+
+    return product, price, None
 
 
 async def _format_response_with_llm(data: Dict[str, Any], user_query: str) -> str:
@@ -247,94 +306,106 @@ Be friendly but direct. Use currency symbol ₹ for amounts."""
 
 async def handle_budget_status(db: AsyncSession) -> str:
     """Handle budget status query - all local computation."""
-    health = await calculate_financial_health(db, offset=0)
+    try:
+        health = await calculate_financial_health(db, offset=0)
 
-    return (
-        f"Your current budget status:\n"
-        f"- Budget: ₹{health['total_budget']:,.2f}\n"
-        f"- Spent: ₹{health['total_spend']:,.2f}\n"
-        f"- Remaining: ₹{health['budget_remaining']:,.2f}\n"
-        f"- Days left: {health['days_left']}\n"
-        f"- Safe to spend daily: ₹{health['safe_to_spend_daily']:,.2f}\n"
-        f"- Status: {health['burn_rate_status']}"
-    )
+        return (
+            f"Your current budget status:\n"
+            f"- Budget: ₹{health['total_budget']:,.2f}\n"
+            f"- Spent: ₹{health['total_spend']:,.2f}\n"
+            f"- Remaining: ₹{health['budget_remaining']:,.2f}\n"
+            f"- Days left: {health['days_left']}\n"
+            f"- Safe to spend daily: ₹{health['safe_to_spend_daily']:,.2f}\n"
+            f"- Status: {health['burn_rate_status']}"
+        )
+    except Exception as e:
+        return f"Unable to fetch budget status. Please try again later. (Error: {str(e)})"
 
 
 async def handle_category_spend(db: AsyncSession, category: str) -> str:
     """Handle category spending query - local lookup."""
-    health = await calculate_financial_health(db, offset=0)
+    try:
+        health = await calculate_financial_health(db, offset=0)
 
-    # Find matching category (fuzzy)
-    categories = health.get("category_breakdown", [])
-    matched = None
-    for cat in categories:
-        if category.lower() in cat["name"].lower():
-            matched = cat
-            break
+        # Find matching category (fuzzy)
+        categories = health.get("category_breakdown", [])
+        matched = None
+        for cat in categories:
+            if category.lower() in cat["name"].lower():
+                matched = cat
+                break
 
-    if matched:
-        return (
-            f"Your spending on {matched['name']} this cycle: ₹{matched['value']:,.2f}"
-        )
-    else:
-        cat_list = ", ".join([c["name"] for c in categories[:5]])
-        return f"No category matching '{category}' found. Your top categories: {cat_list}"
+        if matched:
+            return (
+                f"Your spending on {matched['name']} this cycle: ₹{matched['value']:,.2f}"
+            )
+        else:
+            cat_list = ", ".join([c["name"] for c in categories[:5]])
+            return f"No category matching '{category}' found. Your top categories: {cat_list}"
+    except Exception as e:
+        return f"Unable to fetch category spending. Please try again later. (Error: {str(e)})"
 
 
 async def handle_trends(db: AsyncSession) -> str:
     """Handle trends query - local computation."""
-    trends = await get_trends_overview(db)
+    try:
+        trends = await get_trends_overview(db)
 
-    if not trends.category_trends:
-        return "Not enough data to analyze trends yet."
+        if not trends.category_trends:
+            return "Not enough data to analyze trends yet."
 
-    # Build summary locally
-    increasing = [c.category for c in trends.category_trends if c.trend == "increasing"][:3]
-    decreasing = [c.category for c in trends.category_trends if c.trend == "decreasing"][:3]
+        # Build summary locally
+        increasing = [c.category for c in trends.category_trends if c.trend == "increasing"][:3]
+        decreasing = [c.category for c in trends.category_trends if c.trend == "decreasing"][:3]
 
-    high_spend_months = [p.month_name for p in trends.seasonal_patterns if p.is_high_spend]
+        high_spend_months = [p.month_name for p in trends.seasonal_patterns if p.is_high_spend]
 
-    response = "Spending trends analysis:\n"
-    if increasing:
-        response += f"- Increasing: {', '.join(increasing)}\n"
-    if decreasing:
-        response += f"- Decreasing: {', '.join(decreasing)}\n"
-    if high_spend_months:
-        response += f"- High-spend months: {', '.join(high_spend_months)}\n"
+        response = "Spending trends analysis:\n"
+        if increasing:
+            response += f"- Increasing: {', '.join(increasing)}\n"
+        if decreasing:
+            response += f"- Decreasing: {', '.join(decreasing)}\n"
+        if high_spend_months:
+            response += f"- High-spend months: {', '.join(high_spend_months)}\n"
 
-    if trends.recurring_patterns:
-        top_recurring = trends.recurring_patterns[0]
-        response += f"- Top recurring: {top_recurring.merchant_name} ({top_recurring.frequency})"
+        if trends.recurring_patterns:
+            top_recurring = trends.recurring_patterns[0]
+            response += f"- Top recurring: {top_recurring.merchant_name} ({top_recurring.frequency})"
 
-    return response
+        return response
+    except Exception as e:
+        return f"Unable to fetch spending trends. Please try again later. (Error: {str(e)})"
 
 
 async def handle_savings_advice(db: AsyncSession) -> str:
     """Handle savings advice query - local analysis."""
-    health = await calculate_financial_health(db, offset=0)
-    trends = await get_trends_overview(db)
+    try:
+        health = await calculate_financial_health(db, offset=0)
+        trends = await get_trends_overview(db)
 
-    advice = ["Here are some savings suggestions:"]
+        advice = ["Here are some savings suggestions:"]
 
-    # Find increasing categories
-    increasing = [c for c in trends.category_trends if c.trend == "increasing"]
-    if increasing:
-        top = increasing[0]
-        advice.append(
-            f"- {top.category} spending increased {top.change_percent:.0f}% - consider reviewing"
-        )
+        # Find increasing categories
+        increasing = [c for c in trends.category_trends if c.trend == "increasing"]
+        if increasing:
+            top = increasing[0]
+            advice.append(
+                f"- {top.category} spending increased {top.change_percent:.0f}% - consider reviewing"
+            )
 
-    # Find high-value categories
-    categories = health.get("category_breakdown", [])
-    if categories:
-        top_cat = categories[0]
-        advice.append(f"- Your biggest expense: {top_cat['name']} (₹{top_cat['value']:,.0f})")
+        # Find high-value categories
+        categories = health.get("category_breakdown", [])
+        if categories:
+            top_cat = categories[0]
+            advice.append(f"- Your biggest expense: {top_cat['name']} (₹{top_cat['value']:,.0f})")
 
-    # Check burn rate
-    if health["burn_rate_status"] in ["High Burn", "Caution"]:
-        advice.append(f"- Current status: {health['burn_rate_status']} - slow down spending")
+        # Check burn rate
+        if health["burn_rate_status"] in ["High Burn", "Caution"]:
+            advice.append(f"- Current status: {health['burn_rate_status']} - slow down spending")
 
-    return "\n".join(advice)
+        return "\n".join(advice)
+    except Exception as e:
+        return f"Unable to generate savings advice. Please try again later. (Error: {str(e)})"
 
 
 async def handle_affordability(db: AsyncSession, raw_query: str) -> str:
@@ -342,29 +413,36 @@ async def handle_affordability(db: AsyncSession, raw_query: str) -> str:
     Handle affordability query.
     Uses LLM only to extract product/price, then local computation.
     """
-    product, price = await _extract_product_price(raw_query)
+    try:
+        product, price, error = await _extract_product_price(raw_query)
 
-    if not product or not price or price <= 0:
+        # If there was an API error, show it to the user
+        if error:
+            return f"Unable to check affordability: {error}"
+
+        if not product or not price or price <= 0:
+            return (
+                "I couldn't determine the product price. "
+                "Try: 'Can I afford a ₹5000 monthly EMI?' with a specific amount."
+            )
+
+        # Local affordability calculation
+        simulation = AffordabilitySimulation(monthly_expense=price)
+        result = await simulate_affordability(db, simulation)
+
+        status = "Yes" if result.can_afford else "No"
         return (
-            "I couldn't determine the product price. "
-            "Try: 'Can I afford a ₹5000 monthly EMI?' with a specific amount."
+            f"Can you afford {product}?\n"
+            f"- Answer: {status}\n"
+            f"- Estimated monthly cost: ₹{price:,.0f}\n"
+            f"- Your budget: ₹{result.current_budget:,.0f}\n"
+            f"- Current avg spend: ₹{result.current_avg_spend:,.0f}\n"
+            f"- With new expense: ₹{result.projected_spend_with_new:,.0f}\n"
+            f"- Budget impact: {result.impact_percent:.1f}%\n"
+            f"- {result.recommendation}"
         )
-
-    # Local affordability calculation
-    simulation = AffordabilitySimulation(monthly_expense=price)
-    result = await simulate_affordability(db, simulation)
-
-    status = "Yes" if result.can_afford else "No"
-    return (
-        f"Can you afford {product}?\n"
-        f"- Answer: {status}\n"
-        f"- Estimated monthly cost: ₹{price:,.0f}\n"
-        f"- Your budget: ₹{result.current_budget:,.0f}\n"
-        f"- Current avg spend: ₹{result.current_avg_spend:,.0f}\n"
-        f"- With new expense: ₹{result.projected_spend_with_new:,.0f}\n"
-        f"- Budget impact: {result.impact_percent:.1f}%\n"
-        f"- {result.recommendation}"
-    )
+    except Exception as e:
+        return f"Unable to check affordability. Please try again later. (Error: {str(e)})"
 
 
 async def handle_general(db: AsyncSession, raw_query: str) -> str:
