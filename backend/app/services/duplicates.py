@@ -86,7 +86,10 @@ async def scan_for_duplicates(db: AsyncSession) -> List[schemas.DuplicateGroup]:
                 if type1 != type2: continue
 
                 # Merchant Name Fuzzy Match
-                similarity = fuzz.partial_ratio(t1.merchant_name.lower(), t2.merchant_name.lower())
+                similarity = fuzz.partial_ratio(
+                    (t1.merchant_name or "").lower(),
+                    (t2.merchant_name or "").lower()
+                )
                 
                 if similarity > 80:
                     potential_duplicates.append(schemas.DuplicateGroup(

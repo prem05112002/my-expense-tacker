@@ -1,9 +1,10 @@
-fastapi 
-uvicorn 
-sqlalchemy 
-asyncpg 
+fastapi
+uvicorn
+sqlalchemy
+asyncpg
 pydantic-settings
 greenlet
 rapidfuzz
 holidays
 numpy
+httpx

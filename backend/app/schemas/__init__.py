@@ -14,3 +14,15 @@ from .transactions import (
     TransactionUpdate
 )
 from .subscription import RecurringExpenseBase, RecurringExpenseOut, SubscriptionAction
+from .trends import (
+    MonthlySpend,
+    WeeklySpend,
+    CategoryTrend,
+    SeasonalPattern,
+    DayOfWeekSpend,
+    RecurringPattern,
+    TrendsOverview,
+    CategoryTrendDetail,
+    AffordabilitySimulation,
+    AffordabilityResult
+)
