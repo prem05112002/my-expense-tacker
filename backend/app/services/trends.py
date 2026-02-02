@@ -399,6 +399,42 @@ async def get_category_trend_detail(
     )
 
 
+async def _calculate_avg_monthly_salary(
+    db: AsyncSession,
+    income_cats: List[str],
+    months_back: int = 12
+) -> float:
+    """Calculate average monthly salary from income transactions."""
+    cutoff_date = date.today() - timedelta(days=months_back * 30)
+
+    stmt = (
+        select(
+            models.Transaction.amount,
+            models.Transaction.txn_date
+        )
+        .join(models.Category, models.Transaction.category_id == models.Category.id)
+        .where(
+            models.Transaction.txn_date >= cutoff_date,
+            func.upper(models.Transaction.payment_type) == 'CREDIT',
+            models.Category.name.in_(income_cats)
+        )
+    )
+    result = await db.execute(stmt)
+    transactions = result.mappings().all()
+
+    if not transactions:
+        return 0.0
+
+    # Group by month and calculate average
+    monthly_income: Dict[str, float] = defaultdict(float)
+    for txn in transactions:
+        month_key = _get_month_key(txn.txn_date)
+        monthly_income[month_key] += float(txn.amount)
+
+    totals = list(monthly_income.values())
+    return sum(totals) / len(totals) if totals else 0.0
+
+
 async def simulate_affordability(
     db: AsyncSession,
     simulation: trend_schemas.AffordabilitySimulation
@@ -426,7 +462,25 @@ async def simulate_affordability(
     totals = list(monthly_totals.values())
     avg_spend = sum(totals) / len(totals) if totals else 0
 
-    budget = float(settings.monthly_budget or settings.budget_value)
+    # Calculate budget based on budget_type
+    if settings.budget_type == "PERCENTAGE":
+        avg_salary = await _calculate_avg_monthly_salary(db, income_cats)
+        if avg_salary > 0:
+            budget = avg_salary * (settings.budget_value / 100)
+        else:
+            # No salary data found - cannot calculate percentage-based budget
+            return trend_schemas.AffordabilityResult(
+                can_afford=False,
+                current_budget=0.0,
+                current_avg_spend=round(avg_spend, 2),
+                projected_spend_with_new=round(avg_spend + simulation.monthly_expense, 2),
+                budget_remaining_after=0.0,
+                impact_percent=0.0,
+                recommendation="Unable to calculate budget: No income transactions found in configured income categories. Please add salary/income transactions or switch to a fixed budget."
+            )
+    else:
+        budget = float(settings.monthly_budget or settings.budget_value)
+
     projected_with_new = avg_spend + simulation.monthly_expense
     remaining_after = budget - projected_with_new
     impact_pct = (simulation.monthly_expense / budget * 100) if budget > 0 else 0

@@ -188,3 +188,20 @@ If the chatbot returns generic messages or fails on affordability queries:
 3. **Check rate limits**: Gemini free tier has 15 req/min and 1500 req/day limits
 
 The chatbot service (`backend/app/services/chatbot.py`) loads `.env` from `backend/.env` using a resolved path, so it works regardless of the current working directory when starting uvicorn.
+
+### Affordability check shows wrong budget
+
+The affordability calculator supports two budget types:
+
+- **PERCENTAGE**: Budget is calculated as a percentage of average monthly salary from income transactions
+- **FIXED**: Budget uses the `monthly_budget` or `budget_value` directly as an absolute amount
+
+**How PERCENTAGE budget works:**
+1. Fetches CREDIT transactions from categories listed in `income_categories` (last 12 months)
+2. Groups by month and calculates average monthly income
+3. Applies the `budget_value` percentage (e.g., 40% of ₹100,000 = ₹40,000)
+
+**Common issues:**
+- **Budget shows ₹0 or error**: No income transactions found in configured income categories. Ensure salary/income transactions exist and are categorized correctly.
+- **Wrong percentage applied**: Check that `budget_type` is set to `"PERCENTAGE"` in dashboard settings, not `"FIXED"`.
+- **Incorrect income categories**: Verify `income_categories` in settings includes the category name for your salary transactions (e.g., "Salary", "Income").
