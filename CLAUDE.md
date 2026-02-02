@@ -37,9 +37,12 @@ expense-tracker/
 | Database models | `backend/app/models.py` | 6 tables: Transaction, Category, TransactionRule, etc. |
 | DB connection | `backend/app/database.py` | Async PostgreSQL with `get_db()` dependency |
 | API routes | `backend/app/routers/*.py` | Each resource has dedicated router |
-| Business logic | `backend/app/services/*.py` | Analytics, rules, duplicates, subscriptions |
+| Business logic | `backend/app/services/*.py` | Analytics, rules, duplicates, subscriptions, trends, chatbot |
 | Frontend entry | `frontend/src/App.jsx` | React Router setup |
 | API client | `frontend/src/api/axios.js` | Base URL: localhost:8000 |
+| Trends engine | `backend/app/services/trends.py` | Spending pattern analysis |
+| Chatbot service | `backend/app/services/chatbot.py` | LLM-powered financial assistant |
+| Chat widget | `frontend/src/components/ChatBot.jsx` | Floating chat UI |
 
 ## Commands
 
@@ -73,6 +76,7 @@ Create `.env` files (git-ignored) with:
 
 **Backend** (`backend/.env`):
 - `DB_USER`, `DB_PASS`, `DB_HOST`, `DB_PORT`, `DB_NAME`
+- `GEMINI_API_KEY` - For chatbot LLM (free at https://aistudio.google.com)
 
 **ETL** (`Etl/.env`):
 - `IMAP_USER`, `IMAP_PASSWORD`, `IMAP_HOST`
@@ -98,6 +102,57 @@ Tables defined in `backend/app/models.py:1-77`
 | `/rules` | Auto-categorization | Create rules, apply historically |
 | `/staging` | Pending transactions | Review, approve, dismiss |
 | `/subscription` | Recurring expenses | Track subscriptions |
+| `/trends` | Spending trends | Monthly/category analysis, affordability simulation |
+| `/chatbot` | Financial assistant | LLM-powered Q&A about finances |
+
+## Spending Trends Engine
+
+The trends engine (`backend/app/services/trends.py`) provides spending pattern analysis:
+
+| Feature | Description |
+|---------|-------------|
+| Monthly aggregations | Spending totals by month |
+| Category trends | Track if categories are increasing/decreasing/stable |
+| Seasonal patterns | Identify high-spend months (e.g., December) |
+| Day-of-week analysis | Average spending by weekday |
+| Recurring detection | Identify regular merchants beyond subscriptions |
+| Affordability calculator | Simulate budget impact of new expenses |
+
+**Endpoints:**
+- `GET /trends/overview` - Full trends analysis
+- `GET /trends/category/{name}` - Category-specific trends
+- `POST /trends/simulate-affordability` - Budget impact simulation
+
+## Chatbot (Financial Assistant)
+
+Privacy-first LLM chatbot (`backend/app/services/chatbot.py`) with local computation:
+
+**Architecture:**
+```
+User Question → Intent Detection (LOCAL) → Handler
+                                              ↓
+                    ┌─────────────────────────┴─────────────────────────┐
+                    ↓                                                   ↓
+             LOCAL COMPUTE                                        LLM API (Gemini)
+             - Budget calculations                                - Product price lookup
+             - Trend analysis                                     - Response formatting
+             - Affordability check                                (No financial data sent)
+```
+
+**Supported Queries:**
+- Budget status: "What's my remaining budget?"
+- Category spending: "How much do I spend on food?"
+- Trends: "What are my spending trends?"
+- Affordability: "Can I buy an iPhone 15 in EMI?"
+- Savings: "Where can I cut expenses?"
+
+**Rate Limits (Gemini Free Tier):**
+- 15 requests/minute
+- 1,500 requests/day
+
+**Endpoints:**
+- `POST /chatbot/ask` - Send message, get response
+- `GET /chatbot/rate-limit` - Check remaining requests
 
 ## Adding New Features or Fixing Bugs
 
@@ -118,3 +173,18 @@ Check these files for detailed patterns and conventions:
 - Frontend state management uses React hooks (useState, useEffect)
 - CORS allows localhost:5173 (Vite) and localhost:3000
 - Transactions support salary cycle-based filtering via `offset` parameter
+- Chatbot uses local intent detection - LLM only for product price lookups
+- Burn rate status: `Over Budget` → `High Burn` → `Caution` → `On Track`
+- Settings validation: `salary_day` (1-31), `budget_value` (>= 0)
+
+## Troubleshooting
+
+### Chatbot not responding to queries
+
+If the chatbot returns generic messages or fails on affordability queries:
+
+1. **Check GEMINI_API_KEY**: Ensure `backend/.env` contains `GEMINI_API_KEY=your_key_here`
+2. **Restart server**: The `.env` is loaded at module import time - restart uvicorn after adding the key
+3. **Check rate limits**: Gemini free tier has 15 req/min and 1500 req/day limits
+
+The chatbot service (`backend/app/services/chatbot.py`) loads `.env` from `backend/.env` using a resolved path, so it works regardless of the current working directory when starting uvicorn.
