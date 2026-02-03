@@ -299,17 +299,42 @@ Be friendly but direct. Use currency symbol ₹ for amounts."""
         prompt,
         system_instruction="You are a helpful financial assistant. Keep responses brief and actionable."
     )
-    return response or str(data)
+    return response  # Return None if no response, let handlers use fallback
+
+
+def _is_valid_llm_response(response: Optional[str]) -> bool:
+    """Check if LLM response is valid and usable."""
+    if not response:
+        return False
+    # Check for error prefixes
+    error_prefixes = ("API error:", "Error calling LLM:", "Rate limit exceeded:")
+    if response.startswith(error_prefixes):
+        return False
+    # Check for dict string representation (indicates fallback failure)
+    if response.startswith("{") and response.endswith("}"):
+        return False
+    return True
 
 
 # Intent Handlers (All compute locally, only use LLM for formatting)
 
-async def handle_budget_status(db: AsyncSession) -> str:
-    """Handle budget status query - all local computation."""
+async def handle_budget_status(db: AsyncSession, user_query: str = "") -> str:
+    """Handle budget status query - all local computation with optional LLM formatting."""
     try:
         health = await calculate_financial_health(db, offset=0)
 
-        return (
+        # Structured data for LLM formatting
+        data = {
+            "budget": health['total_budget'],
+            "spent": health['total_spend'],
+            "remaining": health['budget_remaining'],
+            "days_left": health['days_left'],
+            "safe_daily": health['safe_to_spend_daily'],
+            "status": health['burn_rate_status'],
+        }
+
+        # Fallback bullet-point response
+        fallback = (
             f"Your current budget status:\n"
             f"- Budget: ₹{health['total_budget']:,.2f}\n"
             f"- Spent: ₹{health['total_spend']:,.2f}\n"
@@ -318,12 +343,20 @@ async def handle_budget_status(db: AsyncSession) -> str:
             f"- Safe to spend daily: ₹{health['safe_to_spend_daily']:,.2f}\n"
             f"- Status: {health['burn_rate_status']}"
         )
+
+        # Try LLM formatting if query provided
+        if user_query:
+            formatted = await _format_response_with_llm(data, user_query)
+            if _is_valid_llm_response(formatted):
+                return formatted
+
+        return fallback
     except Exception as e:
         return f"Unable to fetch budget status. Please try again later. (Error: {str(e)})"
 
 
-async def handle_category_spend(db: AsyncSession, category: str) -> str:
-    """Handle category spending query - local lookup."""
+async def handle_category_spend(db: AsyncSession, category: str, user_query: str = "") -> str:
+    """Handle category spending query - local lookup with optional LLM formatting."""
     try:
         health = await calculate_financial_health(db, offset=0)
 
@@ -336,9 +369,21 @@ async def handle_category_spend(db: AsyncSession, category: str) -> str:
                 break
 
         if matched:
-            return (
-                f"Your spending on {matched['name']} this cycle: ₹{matched['value']:,.2f}"
-            )
+            data = {
+                "category": matched['name'],
+                "amount": matched['value'],
+                "total_spend": health['total_spend'],
+                "percentage": (matched['value'] / health['total_spend'] * 100) if health['total_spend'] > 0 else 0,
+            }
+
+            fallback = f"Your spending on {matched['name']} this cycle: ₹{matched['value']:,.2f}"
+
+            if user_query:
+                formatted = await _format_response_with_llm(data, user_query)
+                if _is_valid_llm_response(formatted):
+                    return formatted
+
+            return fallback
         else:
             cat_list = ", ".join([c["name"] for c in categories[:5]])
             return f"No category matching '{category}' found. Your top categories: {cat_list}"
@@ -346,8 +391,8 @@ async def handle_category_spend(db: AsyncSession, category: str) -> str:
         return f"Unable to fetch category spending. Please try again later. (Error: {str(e)})"
 
 
-async def handle_trends(db: AsyncSession) -> str:
-    """Handle trends query - local computation."""
+async def handle_trends(db: AsyncSession, user_query: str = "") -> str:
+    """Handle trends query - local computation with optional LLM formatting."""
     try:
         trends = await get_trends_overview(db)
 
@@ -360,6 +405,14 @@ async def handle_trends(db: AsyncSession) -> str:
 
         high_spend_months = [p.month_name for p in trends.seasonal_patterns if p.is_high_spend]
 
+        data = {
+            "increasing_categories": increasing,
+            "decreasing_categories": decreasing,
+            "high_spend_months": high_spend_months,
+            "top_recurring": trends.recurring_patterns[0].merchant_name if trends.recurring_patterns else None,
+        }
+
+        # Fallback response
         response = "Spending trends analysis:\n"
         if increasing:
             response += f"- Increasing: {', '.join(increasing)}\n"
@@ -372,38 +425,57 @@ async def handle_trends(db: AsyncSession) -> str:
             top_recurring = trends.recurring_patterns[0]
             response += f"- Top recurring: {top_recurring.merchant_name} ({top_recurring.frequency})"
 
+        if user_query:
+            formatted = await _format_response_with_llm(data, user_query)
+            if _is_valid_llm_response(formatted):
+                return formatted
+
         return response
     except Exception as e:
         return f"Unable to fetch spending trends. Please try again later. (Error: {str(e)})"
 
 
-async def handle_savings_advice(db: AsyncSession) -> str:
-    """Handle savings advice query - local analysis."""
+async def handle_savings_advice(db: AsyncSession, user_query: str = "") -> str:
+    """Handle savings advice query - local analysis with optional LLM formatting."""
     try:
         health = await calculate_financial_health(db, offset=0)
         trends = await get_trends_overview(db)
 
+        # Build data for LLM
+        increasing = [c for c in trends.category_trends if c.trend == "increasing"]
+        categories = health.get("category_breakdown", [])
+
+        data = {
+            "increasing_categories": [(c.category, c.change_percent) for c in increasing[:3]],
+            "top_expense": categories[0] if categories else None,
+            "burn_status": health["burn_rate_status"],
+            "remaining_budget": health["budget_remaining"],
+        }
+
+        # Fallback advice
         advice = ["Here are some savings suggestions:"]
 
-        # Find increasing categories
-        increasing = [c for c in trends.category_trends if c.trend == "increasing"]
         if increasing:
             top = increasing[0]
             advice.append(
                 f"- {top.category} spending increased {top.change_percent:.0f}% - consider reviewing"
             )
 
-        # Find high-value categories
-        categories = health.get("category_breakdown", [])
         if categories:
             top_cat = categories[0]
             advice.append(f"- Your biggest expense: {top_cat['name']} (₹{top_cat['value']:,.0f})")
 
-        # Check burn rate
         if health["burn_rate_status"] in ["High Burn", "Caution"]:
             advice.append(f"- Current status: {health['burn_rate_status']} - slow down spending")
 
-        return "\n".join(advice)
+        fallback = "\n".join(advice)
+
+        if user_query:
+            formatted = await _format_response_with_llm(data, user_query)
+            if _is_valid_llm_response(formatted):
+                return formatted
+
+        return fallback
     except Exception as e:
         return f"Unable to generate savings advice. Please try again later. (Error: {str(e)})"
 
@@ -430,8 +502,21 @@ async def handle_affordability(db: AsyncSession, raw_query: str) -> str:
         simulation = AffordabilitySimulation(monthly_expense=price)
         result = await simulate_affordability(db, simulation)
 
+        # Build data for LLM formatting
+        data = {
+            "product": product,
+            "can_afford": result.can_afford,
+            "monthly_cost": price,
+            "budget": result.current_budget,
+            "current_spend": result.current_avg_spend,
+            "projected_spend": result.projected_spend_with_new,
+            "impact_percent": result.impact_percent,
+            "recommendation": result.recommendation,
+        }
+
+        # Bullet-point fallback
         status = "Yes" if result.can_afford else "No"
-        return (
+        fallback = (
             f"Can you afford {product}?\n"
             f"- Answer: {status}\n"
             f"- Estimated monthly cost: ₹{price:,.0f}\n"
@@ -441,6 +526,13 @@ async def handle_affordability(db: AsyncSession, raw_query: str) -> str:
             f"- Budget impact: {result.impact_percent:.1f}%\n"
             f"- {result.recommendation}"
         )
+
+        # Try LLM formatting
+        formatted = await _format_response_with_llm(data, raw_query)
+        if _is_valid_llm_response(formatted):
+            return formatted
+
+        return fallback
     except Exception as e:
         return f"Unable to check affordability. Please try again later. (Error: {str(e)})"
 
@@ -466,10 +558,10 @@ async def process_chat_message(db: AsyncSession, message: str) -> Dict[str, Any]
     intent, params = detect_intent(message)
 
     handlers = {
-        "budget_status": lambda: handle_budget_status(db),
-        "category_spend": lambda: handle_category_spend(db, params.get("category", "")),
-        "trends": lambda: handle_trends(db),
-        "savings_advice": lambda: handle_savings_advice(db),
+        "budget_status": lambda: handle_budget_status(db, message),
+        "category_spend": lambda: handle_category_spend(db, params.get("category", ""), message),
+        "trends": lambda: handle_trends(db, message),
+        "savings_advice": lambda: handle_savings_advice(db, message),
         "affordability": lambda: handle_affordability(db, params.get("raw_query", message)),
         "general": lambda: handle_general(db, params.get("raw_query", message)),
     }
@@ -480,6 +572,6 @@ async def process_chat_message(db: AsyncSession, message: str) -> Dict[str, Any]
     return {
         "response": response,
         "intent": intent,
-        "requires_llm": intent == "affordability",
+        "requires_llm": intent in ("affordability", "budget_status", "category_spend", "trends", "savings_advice"),
         "rate_limit": get_rate_limit_status(),
     }

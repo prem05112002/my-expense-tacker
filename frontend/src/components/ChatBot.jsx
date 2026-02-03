@@ -97,7 +97,7 @@ const ChatBot = () => {
             {/* Floating Button */}
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 hover:bg-indigo-700
+                className="fixed bottom-6 right-6 w-14 h-14 bg-teal-600 hover:bg-teal-700
                            rounded-full shadow-lg flex items-center justify-center
                            transition-all duration-300 z-50"
                 aria-label="Toggle chat"
@@ -119,11 +119,11 @@ const ChatBot = () => {
                 <div className="fixed bottom-24 right-6 w-96 h-[500px] bg-[#121212] border border-slate-700
                                rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden">
                     {/* Header */}
-                    <div className="bg-indigo-600 px-4 py-3 flex items-center justify-between">
+                    <div className="bg-teal-600 px-4 py-3 flex items-center justify-between">
                         <div>
                             <h3 className="font-semibold text-white">Financial Assistant</h3>
                             {rateLimit && (
-                                <p className="text-xs text-indigo-200">
+                                <p className="text-xs text-teal-200">
                                     {rateLimit.daily_remaining} queries remaining today
                                 </p>
                             )}
@@ -148,7 +148,7 @@ const ChatBot = () => {
                                 <div
                                     className={`max-w-[80%] px-4 py-2 rounded-xl text-sm whitespace-pre-wrap
                                         ${msg.type === 'user'
-                                            ? 'bg-indigo-600 text-white'
+                                            ? 'bg-teal-600 text-white'
                                             : msg.isError
                                                 ? 'bg-red-900/50 text-red-200 border border-red-700'
                                                 : 'bg-slate-800 text-slate-200'
@@ -206,13 +206,13 @@ const ChatBot = () => {
                                 placeholder="Ask about your finances..."
                                 className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-4 py-2
                                          text-sm text-slate-200 placeholder-slate-500
-                                         focus:outline-none focus:border-indigo-500"
+                                         focus:outline-none focus:border-teal-500"
                                 disabled={isLoading}
                             />
                             <button
                                 onClick={handleSend}
                                 disabled={isLoading || !input.trim()}
-                                className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-700
+                                className="bg-teal-600 hover:bg-teal-700 disabled:bg-slate-700
                                          disabled:cursor-not-allowed px-4 py-2 rounded-lg
                                          transition-colors"
                             >
