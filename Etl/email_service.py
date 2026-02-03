@@ -89,8 +89,10 @@ class EmailService:
                 self.mail.uid('store', email_id, '+FLAGS', '\\Deleted')
             else:
                 print(f"⚠️ Failed to copy email {email_id}")
+        except imaplib.IMAP4.error as e:
+            print(f"❌ IMAP Move Error: {e}")
         except Exception as e:
-            print(f"❌ Move Error: {e}")
+            print(f"❌ Unexpected Move Error: {e}")
 
     def close(self):
         """Expunges and closes connection"""
@@ -98,5 +100,7 @@ class EmailService:
             try:
                 self.mail.expunge()
                 self.mail.logout()
-            except:
-                pass
+            except imaplib.IMAP4.error as e:
+                print(f"⚠️ IMAP close error: {e}")
+            except Exception as e:
+                print(f"⚠️ Unexpected close error: {e}")

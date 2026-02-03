@@ -2,9 +2,13 @@ fastapi
 uvicorn
 sqlalchemy
 asyncpg
+psycopg2-binary
 pydantic-settings
 greenlet
 rapidfuzz
 holidays
 numpy
 httpx
+python-dotenv
+beautifulsoup4
+flask-cors
