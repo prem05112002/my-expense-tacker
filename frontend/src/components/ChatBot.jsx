@@ -1,5 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import api from '../api/axios';
+
+const STORAGE_KEY = 'chatbot-position';
+const DEFAULT_POSITION = { bottom: 24, right: 24 };
 
 const ChatBot = () => {
     const [isOpen, setIsOpen] = useState(false);
@@ -14,6 +17,19 @@ const ChatBot = () => {
     const [rateLimit, setRateLimit] = useState(null);
     const messagesEndRef = useRef(null);
 
+    // Draggable state
+    const [position, setPosition] = useState(() => {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            return saved ? JSON.parse(saved) : DEFAULT_POSITION;
+        } catch {
+            return DEFAULT_POSITION;
+        }
+    });
+    const [isDragging, setIsDragging] = useState(false);
+    const dragRef = useRef(null);
+    const dragStartPos = useRef({ x: 0, y: 0, bottom: 0, right: 0 });
+
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
@@ -27,6 +43,52 @@ const ChatBot = () => {
             fetchRateLimit();
         }
     }, [isOpen, rateLimit]);
+
+    // Save position to localStorage when it changes
+    useEffect(() => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(position));
+    }, [position]);
+
+    // Drag handlers
+    const handleDragStart = useCallback((e) => {
+        if (isOpen) return; // Don't allow dragging when chat is open
+        e.preventDefault();
+        setIsDragging(true);
+        dragStartPos.current = {
+            x: e.clientX,
+            y: e.clientY,
+            bottom: position.bottom,
+            right: position.right,
+        };
+    }, [isOpen, position]);
+
+    const handleDragMove = useCallback((e) => {
+        if (!isDragging) return;
+
+        const deltaX = dragStartPos.current.x - e.clientX;
+        const deltaY = dragStartPos.current.y - e.clientY;
+
+        const newRight = Math.max(24, Math.min(window.innerWidth - 80, dragStartPos.current.right + deltaX));
+        const newBottom = Math.max(24, Math.min(window.innerHeight - 80, dragStartPos.current.bottom + deltaY));
+
+        setPosition({ right: newRight, bottom: newBottom });
+    }, [isDragging]);
+
+    const handleDragEnd = useCallback(() => {
+        setIsDragging(false);
+    }, []);
+
+    // Attach global mouse listeners for dragging
+    useEffect(() => {
+        if (isDragging) {
+            window.addEventListener('mousemove', handleDragMove);
+            window.addEventListener('mouseup', handleDragEnd);
+            return () => {
+                window.removeEventListener('mousemove', handleDragMove);
+                window.removeEventListener('mouseup', handleDragEnd);
+            };
+        }
+    }, [isDragging, handleDragMove, handleDragEnd]);
 
     const fetchRateLimit = async () => {
         try {
@@ -94,13 +156,22 @@ const ChatBot = () => {
 
     return (
         <>
-            {/* Floating Button */}
+            {/* Floating Button (Draggable) */}
             <button
-                onClick={() => setIsOpen(!isOpen)}
-                className="fixed bottom-6 right-6 w-14 h-14 bg-teal-600 hover:bg-teal-700
+                ref={dragRef}
+                onClick={() => !isDragging && setIsOpen(!isOpen)}
+                onMouseDown={handleDragStart}
+                style={{
+                    bottom: `${position.bottom}px`,
+                    right: `${position.right}px`,
+                    cursor: isDragging ? 'grabbing' : isOpen ? 'pointer' : 'grab',
+                }}
+                className={`fixed w-14 h-14 bg-indigo-600 hover:bg-indigo-700
                            rounded-full shadow-lg flex items-center justify-center
-                           transition-all duration-300 z-50"
+                           transition-colors duration-300 z-50 select-none
+                           ${isDragging ? 'scale-110' : ''}`}
                 aria-label="Toggle chat"
+                title={isOpen ? 'Close chat' : 'Drag to move, click to open'}
             >
                 {isOpen ? (
                     <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -116,7 +187,12 @@ const ChatBot = () => {
 
             {/* Chat Window */}
             {isOpen && (
-                <div className="fixed bottom-24 right-6 w-96 h-[500px] bg-[#121212] border border-slate-700
+                <div
+                    style={{
+                        bottom: `${position.bottom + 64}px`,
+                        right: `${position.right}px`,
+                    }}
+                    className="fixed w-96 h-[500px] bg-[#121212] border border-slate-700
                                rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden">
                     {/* Header */}
                     <div className="bg-teal-600 px-4 py-3 flex items-center justify-between">
