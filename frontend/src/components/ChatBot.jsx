@@ -4,6 +4,13 @@ import api from '../api/axios';
 const STORAGE_KEY = 'chatbot-position';
 const DEFAULT_POSITION = { bottom: 24, right: 24 };
 
+// Chat window dimensions for viewport boundary calculations
+const CHAT_WIDTH = 384;   // w-96 = 24rem = 384px
+const CHAT_HEIGHT = 500;
+const BUTTON_SIZE = 56;   // w-14 h-14 = 56px
+const GAP = 8;            // Gap between button and chat window
+const EDGE_PADDING = 16;  // Minimum padding from viewport edges
+
 const ChatBot = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState([
@@ -29,6 +36,7 @@ const ChatBot = () => {
     const [isDragging, setIsDragging] = useState(false);
     const dragRef = useRef(null);
     const dragStartPos = useRef({ x: 0, y: 0, bottom: 0, right: 0 });
+    const hasDragged = useRef(false); // Track if actual dragging occurred to prevent click after drag
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -54,6 +62,7 @@ const ChatBot = () => {
         if (isOpen) return; // Don't allow dragging when chat is open
         e.preventDefault();
         setIsDragging(true);
+        hasDragged.current = false; // Reset at start of potential drag
         dragStartPos.current = {
             x: e.clientX,
             y: e.clientY,
@@ -67,6 +76,11 @@ const ChatBot = () => {
 
         const deltaX = dragStartPos.current.x - e.clientX;
         const deltaY = dragStartPos.current.y - e.clientY;
+
+        // Mark as dragged if there's any movement
+        if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+            hasDragged.current = true;
+        }
 
         const newRight = Math.max(24, Math.min(window.innerWidth - 80, dragStartPos.current.right + deltaX));
         const newBottom = Math.max(24, Math.min(window.innerHeight - 80, dragStartPos.current.bottom + deltaY));
@@ -89,6 +103,42 @@ const ChatBot = () => {
             };
         }
     }, [isDragging, handleDragMove, handleDragEnd]);
+
+    // Calculate chat window position to keep it within viewport bounds
+    const getChatWindowPosition = useCallback(() => {
+        const windowWidth = window.innerWidth;
+        const windowHeight = window.innerHeight;
+
+        // Default: chat window above and aligned right edge with button
+        let chatRight = position.right;
+        let chatBottom = position.bottom + BUTTON_SIZE + GAP;
+
+        // If chat would overflow right edge, shift left
+        if (chatRight + CHAT_WIDTH > windowWidth - EDGE_PADDING) {
+            chatRight = Math.max(EDGE_PADDING, windowWidth - CHAT_WIDTH - EDGE_PADDING);
+        }
+
+        // If chat would overflow left edge (button near right side of screen)
+        if (chatRight < EDGE_PADDING) {
+            chatRight = EDGE_PADDING;
+        }
+
+        // If chat would overflow top (button too high), position it lower
+        if (chatBottom + CHAT_HEIGHT > windowHeight - EDGE_PADDING) {
+            chatBottom = Math.max(EDGE_PADDING, windowHeight - CHAT_HEIGHT - EDGE_PADDING);
+        }
+
+        return { bottom: chatBottom, right: chatRight };
+    }, [position]);
+
+    // Handle button click - only toggle if no drag occurred
+    const handleButtonClick = useCallback(() => {
+        if (hasDragged.current) {
+            hasDragged.current = false;
+            return;
+        }
+        setIsOpen(!isOpen);
+    }, [isOpen]);
 
     const fetchRateLimit = async () => {
         try {
@@ -159,14 +209,14 @@ const ChatBot = () => {
             {/* Floating Button (Draggable) */}
             <button
                 ref={dragRef}
-                onClick={() => !isDragging && setIsOpen(!isOpen)}
+                onClick={handleButtonClick}
                 onMouseDown={handleDragStart}
                 style={{
                     bottom: `${position.bottom}px`,
                     right: `${position.right}px`,
                     cursor: isDragging ? 'grabbing' : isOpen ? 'pointer' : 'grab',
                 }}
-                className={`fixed w-14 h-14 bg-indigo-600 hover:bg-indigo-700
+                className={`fixed w-14 h-14 bg-teal-600 hover:bg-teal-700
                            rounded-full shadow-lg flex items-center justify-center
                            transition-colors duration-300 z-50 select-none
                            ${isDragging ? 'scale-110' : ''}`}
@@ -189,8 +239,8 @@ const ChatBot = () => {
             {isOpen && (
                 <div
                     style={{
-                        bottom: `${position.bottom + 64}px`,
-                        right: `${position.right}px`,
+                        bottom: `${getChatWindowPosition().bottom}px`,
+                        right: `${getChatWindowPosition().right}px`,
                     }}
                     className="fixed w-96 h-[500px] bg-[#121212] border border-slate-700
                                rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden">
