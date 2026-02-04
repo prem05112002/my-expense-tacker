@@ -1,14 +1,13 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Receipt, AlertCircle, Copy, Wallet, User } from 'lucide-react';
+import { LayoutDashboard, Receipt, AlertCircle, Copy, Wallet, User, X } from 'lucide-react';
 
-const Sidebar = () => {
+const Sidebar = ({ isOpen, onClose }) => {
     const location = useLocation();
-    
+
     const menuItems = [
         { icon: LayoutDashboard, label: 'Home', path: '/' },
         { icon: Receipt, label: 'Expenses', path: '/transactions' },
-        // ✅ NEW: Profile Link
         { icon: User, label: 'Profile & Settings', path: '/profile' },
     ];
 
@@ -20,13 +19,14 @@ const Sidebar = () => {
     const NavItem = ({ item, isAction }) => {
         const isActive = location.pathname === item.path;
         return (
-            <Link 
+            <Link
                 to={item.path}
+                onClick={onClose}
                 className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                    isActive 
-                        ? 'bg-slate-800 text-teal-400' 
-                        : isAction 
-                            ? 'text-rose-400 hover:bg-rose-500/10' 
+                    isActive
+                        ? 'bg-slate-800 text-teal-400'
+                        : isAction
+                            ? 'text-rose-400 hover:bg-rose-500/10'
                             : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
                 }`}
             >
@@ -37,34 +37,65 @@ const Sidebar = () => {
     };
 
     return (
-        <div className="w-64 h-screen bg-[#111111] text-white flex flex-col p-6 fixed left-0 top-0 border-r border-slate-800 z-50">
-            {/* Logo */}
-            <div className="flex items-center gap-2 text-teal-400 mb-8 px-2">
-                <Wallet size={28} />
-                <span className="text-xl font-bold tracking-wider text-white">EXPENSIO</span>
-            </div>
+        <>
+            {/* Mobile backdrop */}
+            {isOpen && (
+                <div
+                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+                    onClick={onClose}
+                    aria-hidden="true"
+                />
+            )}
 
-            {/* Greeting */}
-            <div className="mb-8 px-2">
-                <div className="text-slate-400 text-xs uppercase font-bold tracking-wider mb-1">Welcome</div>
-                <h2 className="text-2xl font-semibold text-white">Hi, Prem</h2>
-            </div>
+            {/* Sidebar */}
+            <div
+                className={`
+                    w-64 h-screen bg-[#111111] text-white flex flex-col p-6
+                    fixed left-0 top-0 border-r border-slate-800 z-50
+                    transition-transform duration-300 ease-in-out
+                    lg:translate-x-0
+                    ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+                `}
+                role="navigation"
+                aria-label="Main navigation"
+            >
+                {/* Mobile close button */}
+                <button
+                    onClick={onClose}
+                    className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white lg:hidden"
+                    aria-label="Close navigation"
+                >
+                    <X size={20} />
+                </button>
 
-            {/* Main Menu */}
-            <nav className="space-y-2 mb-8">
-                {menuItems.map((item) => <NavItem key={item.label} item={item} />)}
-            </nav>
-
-            {/* Action Items Section */}
-            <div>
-                <div className="px-4 text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
-                    Actions
+                {/* Logo */}
+                <div className="flex items-center gap-2 text-teal-400 mb-8 px-2">
+                    <Wallet size={28} />
+                    <span className="text-xl font-bold tracking-wider text-white">EXPENSIO</span>
                 </div>
-                <nav className="space-y-2">
-                    {actionItems.map((item) => <NavItem key={item.label} item={item} isAction={true} />)}
+
+                {/* Greeting */}
+                <div className="mb-8 px-2">
+                    <div className="text-slate-400 text-xs uppercase font-bold tracking-wider mb-1">Welcome</div>
+                    <h2 className="text-2xl font-semibold text-white">Hi, Prem</h2>
+                </div>
+
+                {/* Main Menu */}
+                <nav className="space-y-2 mb-8">
+                    {menuItems.map((item) => <NavItem key={item.label} item={item} />)}
                 </nav>
+
+                {/* Action Items Section */}
+                <div>
+                    <div className="px-4 text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
+                        Actions
+                    </div>
+                    <nav className="space-y-2">
+                        {actionItems.map((item) => <NavItem key={item.label} item={item} isAction={true} />)}
+                    </nav>
+                </div>
             </div>
-        </div>
+        </>
     );
 };
 

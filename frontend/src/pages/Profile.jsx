@@ -1,6 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
 import api from '../api/axios';
+import { useToast } from '../contexts/ToastContext';
 import { Save, Trash2, Calendar, DollarSign, EyeOff, ChevronDown, Check, X, AlertTriangle } from 'lucide-react';
+import { ProfileSkeleton } from '../components/ui/CardSkeleton';
+import useFocusTrap from '../hooks/useFocusTrap';
 
 // ... (MultiSelectDropdown Component remains the same) ...
 const MultiSelectDropdown = ({ label, options, selected, onChange, placeholder = "Select..." }) => {
@@ -49,19 +52,22 @@ const MultiSelectDropdown = ({ label, options, selected, onChange, placeholder =
 };
 
 const Profile = () => {
+    const toast = useToast();
     const [loading, setLoading] = useState(true);
     const [rules, setRules] = useState([]);
     const [allCategories, setAllCategories] = useState([]);
     const [deleteTarget, setDeleteTarget] = useState(null);
-    
+
     const [settings, setSettings] = useState({
         salary_day: 1,
         budget_type: 'FIXED',
         budget_value: 0,
         view_cycle_offset: 0,
-        ignored_categories: [], 
-        income_categories: []   
+        ignored_categories: [],
+        income_categories: []
     });
+
+    const deleteModalRef = useFocusTrap(!!deleteTarget, () => setDeleteTarget(null));
 
     useEffect(() => {
         const loadData = async () => {
@@ -85,21 +91,22 @@ const Profile = () => {
     }, []);
 
     const saveSettings = async () => {
-        try { await api.put('/dashboard/settings', settings); alert("Settings Saved!"); } catch (e) { alert("Error saving settings"); }
+        try { await api.put('/dashboard/settings', settings); toast.success("Settings saved successfully!"); } catch (e) { toast.error("Error saving settings"); }
     };
 
     const confirmDeleteRule = async () => {
         if (!deleteTarget) return;
-        try { 
-            await api.delete(`/rules/${deleteTarget.id}`); 
-            setRules(rules.filter(r => r.id !== deleteTarget.id)); 
+        try {
+            await api.delete(`/rules/${deleteTarget.id}`);
+            setRules(rules.filter(r => r.id !== deleteTarget.id));
             setDeleteTarget(null); // Close modal
-        } catch (e) { 
-            alert("Failed to delete rule"); 
+            toast.success("Rule deleted successfully");
+        } catch (e) {
+            toast.error("Failed to delete rule");
         }
     };
 
-    if (loading) return <div className="p-10 text-white animate-pulse">Loading Profile...</div>;
+    if (loading) return <ProfileSkeleton />;
 
     return (
         <div className="p-6 text-white h-[calc(100vh-4rem)] overflow-y-auto custom-scrollbar max-w-7xl mx-auto">
@@ -113,7 +120,7 @@ const Profile = () => {
                         <div className="space-y-4">
                             <div>
                                 <label className="text-xs text-slate-400 font-bold uppercase">Salary / Start Day</label>
-                                <input type="number" min="1" max="31" className="w-full bg-[#222] border border-white/10 rounded p-3 text-white mt-1 outline-none focus:border-blue-500" value={settings.salary_day} onChange={e => setSettings({...settings, salary_day: parseInt(e.target.value)})} />
+                                <input type="number" min="1" max="31" className="w-full bg-[#222] border border-white/10 rounded p-3 text-white mt-1 outline-none focus:border-teal-500" value={settings.salary_day} onChange={e => setSettings({...settings, salary_day: parseInt(e.target.value)})} />
                             </div>
                         </div>
                     </section>
@@ -126,7 +133,7 @@ const Profile = () => {
                             </div>
                             <div>
                                 <label className="text-xs text-slate-400 font-bold uppercase">{settings.budget_type === 'FIXED' ? 'Monthly Limit (₹)' : 'Percentage of Income (%)'}</label>
-                                <input type="number" className="w-full bg-[#222] border border-white/10 rounded p-3 text-white mt-1 outline-none focus:border-blue-500" value={settings.budget_value} onChange={e => setSettings({...settings, budget_value: parseFloat(e.target.value)})} />
+                                <input type="number" className="w-full bg-[#222] border border-white/10 rounded p-3 text-white mt-1 outline-none focus:border-teal-500" value={settings.budget_value} onChange={e => setSettings({...settings, budget_value: parseFloat(e.target.value)})} />
                             </div>
                         </div>
                     </section>
@@ -137,14 +144,14 @@ const Profile = () => {
                             <MultiSelectDropdown label="Salary / Pure Income" placeholder="Select income tags..." options={allCategories} selected={settings.income_categories} onChange={(newList) => setSettings({...settings, income_categories: newList})} />
                         </div>
                     </section>
-                    <button onClick={saveSettings} className="w-full py-4 bg-white text-black font-bold rounded-xl hover:bg-slate-200 transition-colors shadow-lg">Save System Configuration</button>
+                    <button onClick={saveSettings} className="w-full py-4 bg-teal-600 text-white font-bold rounded-xl hover:bg-teal-500 transition-colors shadow-lg shadow-teal-500/20">Save System Configuration</button>
                 </div>
 
                 {/* --- RULES TABLE (New Table Layout) --- */}
                 <div className="bg-[#161616] p-6 rounded-2xl border border-white/5 h-fit sticky top-6">
                     <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><Save className="text-yellow-400"/> Automation Rules ({rules.length})</h2>
-                    <div className="overflow-hidden rounded-lg border border-white/10">
-                        <table className="w-full text-left text-sm text-slate-400">
+                    <div className="overflow-x-auto overflow-hidden rounded-lg border border-white/10">
+                        <table className="w-full text-left text-sm text-slate-400 min-w-[500px]">
                             <thead className="bg-white/5 text-xs uppercase font-bold text-white">
                                 <tr>
                                     <th className="px-4 py-3">Pattern Match</th>
@@ -192,31 +199,37 @@ const Profile = () => {
             </div>
             {deleteTarget && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                    <div className="bg-[#111] border border-white/10 p-6 rounded-2xl w-full max-w-sm shadow-2xl transform transition-all scale-100">
+                    <div
+                        ref={deleteModalRef}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="delete-modal-title"
+                        className="bg-[#111] border border-white/10 p-6 rounded-2xl w-full max-w-sm shadow-2xl transform transition-all scale-100"
+                    >
                         <div className="flex items-center gap-3 mb-4 text-red-400">
                             <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center border border-red-500/20">
                                 <AlertTriangle size={20} />
                             </div>
-                            <h3 className="text-lg font-bold text-white">Delete Rule?</h3>
+                            <h3 id="delete-modal-title" className="text-lg font-bold text-white">Delete Rule?</h3>
                         </div>
-                        
+
                         <p className="text-slate-400 text-sm mb-6 leading-relaxed">
-                            Are you sure you want to delete the automation rule for 
+                            Are you sure you want to delete the automation rule for
                             <span className="text-white font-mono bg-white/10 px-1.5 py-0.5 rounded mx-1.5 border border-white/10">
                                 {deleteTarget.pattern}
-                            </span>? 
+                            </span>?
                             This action cannot be undone.
                         </p>
-                        
+
                         <div className="flex gap-3 justify-end">
-                            <button 
-                                onClick={() => setDeleteTarget(null)} 
+                            <button
+                                onClick={() => setDeleteTarget(null)}
                                 className="px-4 py-2 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 text-sm font-medium transition-colors"
                             >
                                 Cancel
                             </button>
-                            <button 
-                                onClick={confirmDeleteRule} 
+                            <button
+                                onClick={confirmDeleteRule}
                                 className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-bold shadow-lg shadow-red-500/20 transition-all flex items-center gap-2"
                             >
                                 <Trash2 size={14} />

@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api/axios';
-import { 
-    AlertTriangle, Check, Calendar, CreditCard, 
-    ArrowUpRight, ArrowDownLeft, Split // ✅ Added Split icon for "Keep Both"
+import {
+    AlertTriangle, Check, Calendar, CreditCard,
+    ArrowUpRight, ArrowDownLeft, Split
 } from 'lucide-react';
+import { DuplicatesSkeleton } from '../components/ui/CardSkeleton';
 
 const Duplicates = () => {
     const [groups, setGroups] = useState([]);
@@ -48,7 +49,7 @@ const Duplicates = () => {
         }
     };
 
-    if (loading) return <div className="text-white p-10 animate-pulse">Scanning for duplicates...</div>;
+    if (loading) return <DuplicatesSkeleton />;
 
     return (
         <div className="flex flex-col h-[calc(100vh-4rem)] bg-[#0b0b0b] rounded-2xl border border-white/5 text-white font-sans overflow-hidden">

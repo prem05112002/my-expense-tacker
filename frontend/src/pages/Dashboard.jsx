@@ -8,6 +8,7 @@ import {
     LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
 import { getAmountColor, formatCurrency } from '../utils/formatters';
+import { DashboardSkeleton } from '../components/ui/CardSkeleton';
 
 const Dashboard = () => {
     const [stats, setStats] = useState(null);
@@ -54,7 +55,7 @@ const Dashboard = () => {
         fetchStats();
     }, [cycleOffset]);
 
-    if (loading) return <div className="p-10 text-white animate-pulse">Loading Financial Health...</div>;
+    if (loading) return <DashboardSkeleton />;
     if (!stats) return <div className="p-10 text-white">Failed to load data.</div>;
 
     const trendData = stats.spending_trend || [];
