@@ -1,5 +1,5 @@
 from .analytics import (
-    SpendingTrendItem, 
+    SpendingTrendItem,
     FinancialHealthStats
 )
 from .categories import CategoryBase, CategoryOut, CategoryCreate
@@ -8,9 +8,9 @@ from .rules import RuleCreate, RuleOut, RulePreviewResult
 from .settings import UserSettingsUpdate, UserSettingsOut
 from .staging import StagingTransactionOut, StagingConvert
 from .transactions import (
-    TransactionBase, 
-    PaginatedResponse, 
-    TransactionOut, 
+    TransactionBase,
+    PaginatedResponse,
+    TransactionOut,
     TransactionUpdate
 )
 from .subscription import RecurringExpenseBase, RecurringExpenseOut, SubscriptionAction
@@ -25,4 +25,9 @@ from .trends import (
     CategoryTrendDetail,
     AffordabilitySimulation,
     AffordabilityResult
+)
+from .smart_search import (
+    SmartSearchFilters,
+    SmartSearchRequest,
+    SmartSearchResponse
 )

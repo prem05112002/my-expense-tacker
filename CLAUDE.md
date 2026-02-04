@@ -37,12 +37,14 @@ expense-tracker/
 | Database models | `backend/app/models.py` | 6 tables: Transaction, Category, TransactionRule, etc. |
 | DB connection | `backend/app/database.py` | Async PostgreSQL with `get_db()` dependency |
 | API routes | `backend/app/routers/*.py` | Each resource has dedicated router |
-| Business logic | `backend/app/services/*.py` | Analytics, rules, duplicates, subscriptions, trends, chatbot |
+| Business logic | `backend/app/services/*.py` | Analytics, rules, duplicates, subscriptions, trends, chatbot, smart_search |
 | Frontend entry | `frontend/src/App.jsx` | React Router setup |
 | API client | `frontend/src/api/axios.js` | Base URL: localhost:8000 |
 | Trends engine | `backend/app/services/trends.py` | Spending pattern analysis |
 | Chatbot service | `backend/app/services/chatbot.py` | LLM-powered financial assistant |
 | Chat widget | `frontend/src/components/ChatBot.jsx` | Floating chat UI |
+| Smart search | `backend/app/services/smart_search.py` | AI-powered natural language transaction search |
+| Search summary | `frontend/src/components/ui/SearchSummary.jsx` | Debit/credit totals display |
 
 ## Commands
 
@@ -153,6 +155,66 @@ User Question → Intent Detection (LOCAL) → Handler
 **Endpoints:**
 - `POST /chatbot/ask` - Send message, get response
 - `GET /chatbot/rate-limit` - Check remaining requests
+
+## Smart Search & Transaction Summary
+
+The Transactions page includes AI-powered natural language search with transaction summary display.
+
+### Smart Search (`backend/app/services/smart_search.py`)
+
+**Architecture:**
+```
+User Query → detect_search_type() → 'smart' or 'fuzzy'
+                                           ↓
+            ┌──────────────────────────────┴──────────────────────────────┐
+            ↓                                                              ↓
+      SMART (AI)                                                      FUZZY (Simple)
+      - Call Gemini API                                               - Text match on
+      - Parse natural language                                          merchant/category
+      - Extract filters                                               - No LLM needed
+            ↓
+      SmartSearchFilters
+      (categories, amounts, dates, payment_type, merchant_pattern)
+```
+
+**Supported Queries:**
+- `"food expenses over 500 last week"` → Filters: category=Food, amount_min=500, date_from=7 days ago
+- `"swiggy transactions this month"` → Filters: merchant_pattern=swiggy, date_from=1st of month
+- `"income last month"` → Filters: payment_type=CREDIT, date_from=30 days ago
+
+**Endpoints:**
+- `GET /transactions` - Supports `category_ids`, `amount_min`, `amount_max`, `merchant_pattern` params
+- `POST /transactions/smart-search` - Natural language search with parsed filter response
+
+**Rate Limits:** Shares Gemini quota with chatbot (15/min, 1500/day)
+
+### Transaction Summary Display
+
+The SearchSummary component shows aggregated totals for filtered transactions:
+
+| Field | Description | Color |
+|-------|-------------|-------|
+| Spent | Sum of DEBIT transactions | Red |
+| Received | Sum of CREDIT transactions | Green |
+| Net Gain/Spend | credit_sum - debit_sum | Green if positive, Red if negative |
+
+### Category Multiselect Filter
+
+Click the "Category" table header to open a dropdown with:
+- Checkboxes for each category
+- Selected count badge
+- Clear all button
+
+### Key Files
+
+| Purpose | File |
+|---------|------|
+| Smart search service | `backend/app/services/smart_search.py` |
+| Smart search schemas | `backend/app/schemas/smart_search.py` |
+| Search input component | `frontend/src/components/ui/SmartSearchInput.jsx` |
+| Summary display | `frontend/src/components/ui/SearchSummary.jsx` |
+| Category filter | `frontend/src/components/ui/CategoryMultiselect.jsx` |
+| Smart search hook | `frontend/src/hooks/useSmartSearch.js` |
 
 ## Adding New Features or Fixing Bugs
 
