@@ -17,6 +17,8 @@ class PaginatedResponse(BaseModel):
     page: int
     limit: int
     total_pages: int
+    debit_sum: float = 0.0
+    credit_sum: float = 0.0
 
 class TransactionOut(BaseModel):
     id: int

@@ -1,30 +1,43 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api/axios';
-import { 
-    Search, Edit2, TrendingUp, TrendingDown, RotateCcw, 
-    ChevronLeft, ChevronRight, X, Check, Save, Wand2, Plus 
+import {
+    Edit2, TrendingUp, TrendingDown, RotateCcw,
+    ChevronLeft, ChevronRight, X, Check, Save, Wand2, Plus
 } from 'lucide-react';
-import debounce from 'lodash.debounce';
 
 // Utilities
 import { getAmountColor, formatCurrency } from '../utils/formatters';
 import SortableHeader from '../components/ui/SortableHeader';
 import DateFilter from '../components/ui/DateFilter';
 import FilterButton from '../components/ui/FilterButton';
+import SmartSearchInput from '../components/ui/SmartSearchInput';
+import SearchSummary from '../components/ui/SearchSummary';
+import CategoryMultiselect from '../components/ui/CategoryMultiselect';
+import useSmartSearch from '../hooks/useSmartSearch';
 
 const Transactions = () => {
     // --- STATE ---
     const [transactions, setTransactions] = useState([]);
-    const [categories, setCategories] = useState([]); 
+    const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(true);
-    
+
     // Pagination & Filters
     const [page, setPage] = useState(1);
     const [limit] = useState(15);
     const [totalPages, setTotalPages] = useState(0);
     const [totalRecords, setTotalRecords] = useState(0);
+    const [debitSum, setDebitSum] = useState(0);
+    const [creditSum, setCreditSum] = useState(0);
     const [filters, setFilters] = useState({ search: '', startDate: '', endDate: '', type: 'ALL' });
     const [sortConfig, setSortConfig] = useState({ key: 'txn_date', direction: 'desc' });
+
+    // Category Filter
+    const [selectedCategoryIds, setSelectedCategoryIds] = useState([]);
+
+    // Smart Search
+    const { executeSmartSearch, clearSearch, isLoading: smartSearchLoading, searchType, parsedFilters } = useSmartSearch();
+    const [isSmartSearch, setIsSmartSearch] = useState(false);
+    const [currentParsedFilters, setCurrentParsedFilters] = useState(null);
 
     // Edit Modal
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -32,7 +45,7 @@ const Transactions = () => {
     const [applyMerchantToSimilar, setApplyMerchantToSimilar] = useState(false);
     const [applyCategoryToSimilar, setApplyCategoryToSimilar] = useState(false);
 
-    // ✅ NEW STATE: Category Modal
+    // Category Modal
     const [isCatModalOpen, setIsCatModalOpen] = useState(false);
     const [newCatName, setNewCatName] = useState("");
 
@@ -45,10 +58,16 @@ const Transactions = () => {
 
     // --- EFFECTS ---
     useEffect(() => {
-        fetchTransactions();
         fetchCategories();
+    }, []);
+
+    useEffect(() => {
+        // Don't fetch if we're in smart search mode
+        if (!isSmartSearch) {
+            fetchTransactions();
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [page, filters, sortConfig]);
+    }, [page, filters, sortConfig, selectedCategoryIds, isSmartSearch]);
 
     // --- API CALLS ---
     const fetchCategories = async () => {
@@ -70,22 +89,66 @@ const Transactions = () => {
             if (filters.startDate) params.append('start_date', filters.startDate);
             if (filters.endDate) params.append('end_date', filters.endDate);
             if (filters.type !== 'ALL') params.append('payment_type', filters.type);
-            
+            if (selectedCategoryIds.length > 0) {
+                params.append('category_ids', selectedCategoryIds.join(','));
+            }
+
             const res = await api.get('/transactions', { params });
             if (res.data && Array.isArray(res.data.data)) {
                 setTransactions(res.data.data);
                 setTotalPages(res.data.total_pages);
                 setTotalRecords(res.data.total);
+                setDebitSum(res.data.debit_sum || 0);
+                setCreditSum(res.data.credit_sum || 0);
             } else { setTransactions([]); }
         } catch (error) { setTransactions([]); } finally { setLoading(false); }
     };
 
     // --- HANDLERS ---
-    
-    const handleSearchChange = useMemo(() => debounce((val) => {
+
+    // Handle fuzzy search (simple text search)
+    const handleFuzzySearch = useCallback((val) => {
+        setIsSmartSearch(false);
+        setCurrentParsedFilters(null);
+        clearSearch();
         setFilters(prev => ({ ...prev, search: val }));
         setPage(1);
-    }, 500), []);
+    }, [clearSearch]);
+
+    // Handle smart search (AI-powered)
+    const handleSmartSearch = useCallback(async (query) => {
+        if (!query || query.trim().length < 2) {
+            handleFuzzySearch('');
+            return;
+        }
+
+        setLoading(true);
+        setIsSmartSearch(true);
+
+        const result = await executeSmartSearch(query, {
+            page: 1,
+            limit,
+            sort_by: sortConfig.key,
+            sort_order: sortConfig.direction
+        });
+
+        if (result) {
+            setTransactions(result.transactions);
+            setTotalPages(result.totalPages);
+            setTotalRecords(result.total);
+            setDebitSum(result.debitSum);
+            setCreditSum(result.creditSum);
+            setPage(result.page);
+            setCurrentParsedFilters(result.parsedFilters);
+
+            // If it fell back to fuzzy, update the state
+            if (result.searchType === 'fuzzy') {
+                setIsSmartSearch(false);
+            }
+        }
+
+        setLoading(false);
+    }, [executeSmartSearch, limit, sortConfig, handleFuzzySearch]);
 
     const toggleSort = (key) => {
         setSortConfig(current => ({ key, direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc' }));
@@ -95,15 +158,23 @@ const Transactions = () => {
     const clearAllFilters = () => {
         setFilters({ search: '', startDate: '', endDate: '', type: 'ALL' });
         setSortConfig({ key: 'txn_date', direction: 'desc' });
+        setSelectedCategoryIds([]);
+        setIsSmartSearch(false);
+        setCurrentParsedFilters(null);
+        clearSearch();
         setPage(1);
-        if(document.getElementById('search-input')) document.getElementById('search-input').value = "";
     };
 
     const handlePageChange = (newPage) => {
         if (newPage >= 1 && newPage <= totalPages) setPage(newPage);
     };
 
-    // ✅ Helper to create category (used by Modal)
+    const handleCategoryFilterChange = (newIds) => {
+        setSelectedCategoryIds(newIds);
+        setPage(1);
+    };
+
+    // Helper to create category (used by Modal)
     const ensureCategoryExists = async (categoryName) => {
         const existing = categories.find(c => c.name.toLowerCase() === categoryName.toLowerCase());
         if (existing) return existing.id;
@@ -120,15 +191,15 @@ const Transactions = () => {
         }
     };
 
-    // ✅ Handle Saving New Category from Custom Modal
+    // Handle Saving New Category from Custom Modal
     const handleSaveNewCategory = async () => {
         if (!newCatName.trim()) return;
         const newId = await ensureCategoryExists(newCatName);
         if (newId) {
-            setEditingTxn(prev => ({ 
-                ...prev, 
-                category_id: newId, 
-                category_name: newCatName 
+            setEditingTxn(prev => ({
+                ...prev,
+                category_id: newId,
+                category_name: newCatName
             }));
             setIsCatModalOpen(false);
             setNewCatName("");
@@ -155,7 +226,7 @@ const Transactions = () => {
         try {
             let finalCategoryId = editingTxn.category_id;
             if (editingTxn.category_name && !finalCategoryId) {
-                 finalCategoryId = await ensureCategoryExists(editingTxn.category_name);
+                finalCategoryId = await ensureCategoryExists(editingTxn.category_name);
             }
             if (!finalCategoryId) { alert("Please select a valid category."); return; }
 
@@ -171,22 +242,21 @@ const Transactions = () => {
             };
 
             await api.put(`/transactions/${editingTxn.id}`, payload);
-            
+
             const selectedCategory = categories.find(c => c.id === payload.category_id);
 
             setTransactions(prev => prev.map(t => {
                 if (t.id === editingTxn.id) {
-                    return { 
-                        ...t, 
-                        ...payload, 
-                        // ✅ 2. Manually update these display fields so the UI refreshes instantly
+                    return {
+                        ...t,
+                        ...payload,
                         category_name: selectedCategory ? selectedCategory.name : "Uncategorized",
                         category_color: selectedCategory ? selectedCategory.color : "#cbd5e1"
                     };
                 }
                 return t;
             }));
-            
+
             setIsEditModalOpen(false);
             setEditingTxn(null);
         } catch (error) {
@@ -234,37 +304,51 @@ const Transactions = () => {
             });
             setShowRuleModal(false);
             setPreviewStep('INPUT');
-            fetchTransactions(); 
+            fetchTransactions();
         } catch (e) { alert("Failed to save rule"); }
     };
 
+    const isLoadingState = loading || smartSearchLoading;
+
     return (
         <div className="flex flex-col h-[calc(100vh-4rem)] bg-[#0b0b0b] rounded-2xl border border-white/5 text-white font-sans overflow-hidden relative">
-            
-            {/* --- TOP BAR (PRESERVED) --- */}
+
+            {/* --- TOP BAR --- */}
             <div className="p-6 border-b border-white/5 space-y-4 shrink-0 bg-[#0b0b0b]">
                 <div className="flex flex-col md:flex-row justify-between items-end gap-4">
                     <div className="flex flex-wrap gap-4 items-end w-full md:w-auto">
-                        <div className="relative w-64 group">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-teal-400 transition-colors" size={16} />
-                            <input id="search-input" type="text" placeholder="Search merchant..." onChange={(e) => handleSearchChange(e.target.value)} className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg py-2 pl-10 pr-4 text-sm text-white focus:outline-none focus:border-teal-500/50 transition-all" />
-                        </div>
-                        <DateFilter label="From" value={filters.startDate} onChange={(val) => setFilters(prev => ({...prev, startDate: val}))} />
-                        <DateFilter label="To" value={filters.endDate} onChange={(val) => setFilters(prev => ({...prev, endDate: val}))} />
+                        <SmartSearchInput
+                            categories={categories}
+                            onSearch={handleFuzzySearch}
+                            onSmartSearch={handleSmartSearch}
+                            className="w-80"
+                        />
+                        <DateFilter label="From" value={filters.startDate} onChange={(val) => { setFilters(prev => ({...prev, startDate: val})); setIsSmartSearch(false); }} />
+                        <DateFilter label="To" value={filters.endDate} onChange={(val) => { setFilters(prev => ({...prev, endDate: val})); setIsSmartSearch(false); }} />
                     </div>
-                    
+
                     <div className="flex items-center gap-3">
                         <div className="flex bg-[#1e1e1e] rounded-lg p-1 border border-white/10">
-                            <FilterButton active={filters.type === 'ALL'} onClick={() => { setFilters({...filters, type: 'ALL'}); setPage(1); }} label="ALL" />
-                            <FilterButton active={filters.type === 'DEBIT'} onClick={() => { setFilters({...filters, type: 'DEBIT'}); setPage(1); }} label="DEBIT" icon={TrendingDown} colorClass="text-red-400" bgClass="bg-red-500/20 border-red-500/30"/>
-                            <FilterButton active={filters.type === 'CREDIT'} onClick={() => { setFilters({...filters, type: 'CREDIT'}); setPage(1); }} label="CREDIT" icon={TrendingUp} colorClass="text-emerald-400" bgClass="bg-emerald-500/20 border-emerald-500/30"/>
+                            <FilterButton active={filters.type === 'ALL'} onClick={() => { setFilters({...filters, type: 'ALL'}); setPage(1); setIsSmartSearch(false); }} label="ALL" />
+                            <FilterButton active={filters.type === 'DEBIT'} onClick={() => { setFilters({...filters, type: 'DEBIT'}); setPage(1); setIsSmartSearch(false); }} label="DEBIT" icon={TrendingDown} colorClass="text-red-400" bgClass="bg-red-500/20 border-red-500/30"/>
+                            <FilterButton active={filters.type === 'CREDIT'} onClick={() => { setFilters({...filters, type: 'CREDIT'}); setPage(1); setIsSmartSearch(false); }} label="CREDIT" icon={TrendingUp} colorClass="text-emerald-400" bgClass="bg-emerald-500/20 border-emerald-500/30"/>
                         </div>
                         <button onClick={clearAllFilters} className="p-2 text-slate-500 hover:text-white hover:bg-white/10 rounded-lg transition-colors" title="Clear All Filters"><RotateCcw size={18} /></button>
                     </div>
                 </div>
             </div>
 
-            {/* --- TABLE AREA (PRESERVED HEADER) --- */}
+            {/* --- SEARCH SUMMARY --- */}
+            <SearchSummary
+                totalRecords={totalRecords}
+                debitSum={debitSum}
+                creditSum={creditSum}
+                isSmartSearch={isSmartSearch}
+                parsedFilters={currentParsedFilters}
+                onClearFilters={clearAllFilters}
+            />
+
+            {/* --- TABLE AREA --- */}
             <div className="flex-1 overflow-hidden relative">
                 <div className="absolute inset-0 overflow-y-auto custom-scrollbar">
                     <table className="w-full text-left border-collapse">
@@ -273,14 +357,20 @@ const Transactions = () => {
                                 <SortableHeader label="Date" active={sortConfig.key === 'txn_date'} direction={sortConfig.direction} onClick={() => toggleSort('txn_date')} />
                                 <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-500">Merchant</th>
                                 <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-500">Mode</th>
-                                <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-500">Category</th>
+                                <th className="p-0">
+                                    <CategoryMultiselect
+                                        categories={categories}
+                                        selectedIds={selectedCategoryIds}
+                                        onChange={handleCategoryFilterChange}
+                                    />
+                                </th>
                                 <SortableHeader label="Amount" align="right" active={sortConfig.key === 'amount'} direction={sortConfig.direction} onClick={() => toggleSort('amount')} />
                                 <th className="p-4 w-20"></th>
                             </tr>
                         </thead>
 
                         <tbody className="divide-y divide-white/5">
-                            {loading ? (
+                            {isLoadingState ? (
                                 <tr><td colSpan="6" className="py-20 text-center text-slate-500 animate-pulse">Loading transactions...</td></tr>
                             ) : transactions.length === 0 ? (
                                 <tr><td colSpan="6" className="py-20 text-center text-slate-500">No transactions found</td></tr>
@@ -315,15 +405,15 @@ const Transactions = () => {
 
             {/* --- PAGINATION --- */}
             <div className="p-4 border-t border-white/5 flex items-center justify-between bg-[#0b0b0b] text-xs text-slate-500">
-                <span>Showing {(page - 1) * limit + 1} to {Math.min(page * limit, totalRecords)} of {totalRecords} results</span>
+                <span>Showing {totalRecords > 0 ? (page - 1) * limit + 1 : 0} to {Math.min(page * limit, totalRecords)} of {totalRecords} results</span>
                 <div className="flex items-center gap-2">
                     <button onClick={() => handlePageChange(page - 1)} disabled={page === 1} className="p-2 rounded-lg hover:bg-white/5 disabled:opacity-30 transition-colors"><ChevronLeft size={16} /></button>
-                    <span className="font-mono text-white px-2">Page {page} of {totalPages}</span>
-                    <button onClick={() => handlePageChange(page + 1)} disabled={page === totalPages} className="p-2 rounded-lg hover:bg-white/5 disabled:opacity-30 transition-colors"><ChevronRight size={16} /></button>
+                    <span className="font-mono text-white px-2">Page {page} of {totalPages || 1}</span>
+                    <button onClick={() => handlePageChange(page + 1)} disabled={page === totalPages || totalPages === 0} className="p-2 rounded-lg hover:bg-white/5 disabled:opacity-30 transition-colors"><ChevronRight size={16} /></button>
                 </div>
             </div>
 
-            {/* --- EDIT MODAL (PRESERVED + CATEGORY FEATURE ADDED) --- */}
+            {/* --- EDIT MODAL --- */}
             {isEditModalOpen && editingTxn && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                     <div className="bg-[#111] w-full max-w-lg rounded-2xl border border-white/10 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -337,15 +427,15 @@ const Transactions = () => {
                                 <input type="text" value={editingTxn.merchant_name} onChange={(e) => setEditingTxn({...editingTxn, merchant_name: e.target.value})} className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg p-3 text-sm text-white focus:border-teal-500/50 outline-none"/>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase">Amount (₹)</label><input type="number" value={editingTxn.amount} onChange={(e) => setEditingTxn({...editingTxn, amount: e.target.value})} className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg p-3 text-sm text-white font-mono focus:border-teal-500/50 outline-none"/></div>
+                                <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase">Amount ({'\u20B9'})</label><input type="number" value={editingTxn.amount} onChange={(e) => setEditingTxn({...editingTxn, amount: e.target.value})} className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg p-3 text-sm text-white font-mono focus:border-teal-500/50 outline-none"/></div>
                                 <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 uppercase">Date</label><input type="date" value={editingTxn.txn_date} onChange={(e) => setEditingTxn({...editingTxn, txn_date: e.target.value})} className="w-full bg-[#1e1e1e] border border-white/10 rounded-lg p-3 text-sm text-white focus:border-teal-500/50 outline-none"/></div>
                             </div>
-                            
-                            {/* ✅ NEW: CATEGORY SELECT + BUTTON */}
+
+                            {/* CATEGORY SELECT + BUTTON */}
                             <div className="space-y-1.5">
                                 <label className="text-xs font-bold text-slate-500 uppercase">Category</label>
                                 <div className="flex gap-2">
-                                    <select 
+                                    <select
                                         value={editingTxn.category_id || ""}
                                         onChange={(e) => {
                                             const catId = parseInt(e.target.value);
@@ -357,7 +447,7 @@ const Transactions = () => {
                                         <option value="">Select Category...</option>
                                         {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                     </select>
-                                    <button 
+                                    <button
                                         onClick={() => setIsCatModalOpen(true)}
                                         className="bg-teal-600 hover:bg-teal-500 text-white p-3 rounded-lg transition-colors flex items-center justify-center border border-teal-500/20"
                                         title="Create New Category"
@@ -387,7 +477,7 @@ const Transactions = () => {
                 </div>
             )}
 
-            {/* ✅ NEW: ADD CATEGORY MODAL (Z-Index 60 to overlap Edit Modal) */}
+            {/* ADD CATEGORY MODAL (Z-Index 60 to overlap Edit Modal) */}
             {isCatModalOpen && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-[2px] p-4">
                     <div className="bg-[#111] rounded-2xl border border-white/10 w-full max-w-sm shadow-2xl overflow-hidden">
@@ -407,18 +497,18 @@ const Transactions = () => {
                 </div>
             )}
 
-            {/* --- RULE MODAL (PRESERVED TEAL THEME) --- */}
+            {/* --- RULE MODAL --- */}
             {showRuleModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                    <div 
+                    <div
                         className="bg-[#111] border border-white/10 p-6 rounded-xl w-full max-w-lg max-h-[80vh] flex flex-col box-shadow-xl"
                         style={{ boxShadow: '0 4px 60px -15px rgba(45, 212, 191, 0.2)' }}
                     >
                         <h3 className="text-xl text-white font-bold mb-6 flex items-center gap-3 border-b border-white/5 pb-4">
-                            <Wand2 style={{ color: 'rgb(45, 212, 191)' }} size={24} /> 
+                            <Wand2 style={{ color: 'rgb(45, 212, 191)' }} size={24} />
                             {previewStep === 'INPUT' ? "Create Automation Rule" : "Verify Matches"}
                         </h3>
-                        
+
                         {previewStep === 'INPUT' ? (
                             <div className="space-y-5">
                                 <div>

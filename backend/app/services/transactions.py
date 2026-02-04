@@ -34,19 +34,23 @@ async def get_next_available_color(db: AsyncSession) -> str:
     return random.choice(COLOR_PALETTE)
 
 async def get_filtered_transactions(
-    db: AsyncSession, 
-    page: int, 
-    limit: int, 
-    search: Optional[str] = None, 
-    start_date: Optional[date] = None, 
-    end_date: Optional[date] = None, 
+    db: AsyncSession,
+    page: int,
+    limit: int,
+    search: Optional[str] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
     payment_type: Optional[str] = None,
     sort_by: str = "txn_date",
-    sort_order: str = "desc"
+    sort_order: str = "desc",
+    category_ids: Optional[list[int]] = None,
+    amount_min: Optional[float] = None,
+    amount_max: Optional[float] = None,
+    merchant_pattern: Optional[str] = None
 ):
     # 1. Build Filter Conditions
     filters = []
-    
+
     if search:
         search_fmt = f"%{search}%"
         filters.append(or_(
@@ -54,13 +58,23 @@ async def get_filtered_transactions(
             models.Category.name.ilike(search_fmt),
             models.Transaction.bank_name.ilike(search_fmt)
         ))
-    
+
     if start_date:
         filters.append(models.Transaction.txn_date >= start_date)
     if end_date:
         filters.append(models.Transaction.txn_date <= end_date)
     if payment_type and payment_type.upper() != "ALL":
         filters.append(models.Transaction.payment_type == payment_type.lower())
+
+    # New filters: category_ids, amount range, merchant_pattern
+    if category_ids:
+        filters.append(models.Transaction.category_id.in_(category_ids))
+    if amount_min is not None:
+        filters.append(models.Transaction.amount >= amount_min)
+    if amount_max is not None:
+        filters.append(models.Transaction.amount <= amount_max)
+    if merchant_pattern:
+        filters.append(models.Transaction.merchant_name.ilike(f"%{merchant_pattern}%"))
 
     # 2. Query for Total Count
     count_stmt = (
@@ -70,8 +84,32 @@ async def get_filtered_transactions(
     )
     for f in filters:
         count_stmt = count_stmt.where(f)
-        
+
     total_count = await db.scalar(count_stmt)
+
+    # 2b. Query for Debit Sum
+    debit_sum_stmt = (
+        select(func.coalesce(func.sum(models.Transaction.amount), 0))
+        .select_from(models.Transaction)
+        .join(models.Category, models.Transaction.category_id == models.Category.id)
+        .where(models.Transaction.payment_type == "debit")
+    )
+    for f in filters:
+        debit_sum_stmt = debit_sum_stmt.where(f)
+
+    debit_sum = await db.scalar(debit_sum_stmt)
+
+    # 2c. Query for Credit Sum
+    credit_sum_stmt = (
+        select(func.coalesce(func.sum(models.Transaction.amount), 0))
+        .select_from(models.Transaction)
+        .join(models.Category, models.Transaction.category_id == models.Category.id)
+        .where(models.Transaction.payment_type == "credit")
+    )
+    for f in filters:
+        credit_sum_stmt = credit_sum_stmt.where(f)
+
+    credit_sum = await db.scalar(credit_sum_stmt)
 
     # 3. Query for Data
     stmt = (
@@ -85,8 +123,8 @@ async def get_filtered_transactions(
             models.Transaction.bank_name,
             models.Transaction.upi_transaction_id,
             models.Transaction.category_id,
-            models.Category.name.label("category_name"),   
-            models.Category.color.label("category_color")  
+            models.Category.name.label("category_name"),
+            models.Category.color.label("category_color")
         )
         .join(models.Category, models.Transaction.category_id == models.Category.id)
     )
@@ -108,18 +146,19 @@ async def get_filtered_transactions(
     # 6. Execute
     result = await db.execute(stmt)
     rows = result.mappings().all()
-    
+
     # 7. Calculate Pagination Metadata
-    # Integer division ceiling logic to get total pages
     total_pages = (total_count + limit - 1) // limit if limit > 0 else 0
 
-    # 8. Return Exact Schema Structure (✅ Fixes Validation Error)
+    # 8. Return Exact Schema Structure
     return {
-        "data": [schemas.TransactionOut.model_validate(row) for row in rows], # Renamed 'items' -> 'data'
+        "data": [schemas.TransactionOut.model_validate(row) for row in rows],
         "total": total_count,
         "page": page,
-        "limit": limit,         # Renamed 'size' -> 'limit'
-        "total_pages": total_pages # Added missing field
+        "limit": limit,
+        "total_pages": total_pages,
+        "debit_sum": float(debit_sum) if debit_sum else 0.0,
+        "credit_sum": float(credit_sum) if credit_sum else 0.0
     }
 
 async def update_transaction_logic(db: AsyncSession, txn_id: int, data: schemas.TransactionUpdate):
