@@ -22,6 +22,9 @@ expense-tracker/
 ├── frontend/src/          # React SPA
 │   ├── api/axios.js       # Configured Axios instance
 │   ├── components/        # Reusable UI components
+│   │   └── ui/            # Design system components (Toast, Skeleton, etc.)
+│   ├── contexts/          # React context providers
+│   ├── hooks/             # Custom React hooks
 │   ├── pages/             # Route pages (Dashboard, Transactions, etc.)
 │   └── utils/             # Helper functions
 └── Etl/                   # Email ingestion pipeline
@@ -216,6 +219,129 @@ Click the "Category" table header to open a dropdown with:
 | Summary display | `frontend/src/components/ui/SearchSummary.jsx` |
 | Category filter | `frontend/src/components/ui/CategoryMultiselect.jsx` |
 | Smart search hook | `frontend/src/hooks/useSmartSearch.js` |
+| Toast notifications | `frontend/src/components/ui/Toast.jsx` |
+| Toast context | `frontend/src/contexts/ToastContext.jsx` |
+| Skeleton loaders | `frontend/src/components/ui/Skeleton.jsx` |
+| Card skeletons | `frontend/src/components/ui/CardSkeleton.jsx` |
+| Table skeletons | `frontend/src/components/ui/TableSkeleton.jsx` |
+| Focus trap hook | `frontend/src/hooks/useFocusTrap.js` |
+
+## UI/UX Design System
+
+### Color Scheme
+
+| Purpose | Color | Tailwind Class |
+|---------|-------|----------------|
+| Primary Action | Teal | `bg-teal-600 hover:bg-teal-500` |
+| Credit/Positive | Emerald | `text-emerald-400` |
+| Debit/Negative | Red | `text-red-400` |
+| AI Features | Purple | `text-purple-400` |
+| Neutral Text | Slate | `text-slate-300` (body), `text-slate-400` (labels) |
+| Backgrounds | Dark | `bg-[#0a0a0a]` (main), `bg-[#161616]` (cards) |
+
+### Reusable UI Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| Toast | `frontend/src/components/ui/Toast.jsx` | Notification system |
+| ToastContext | `frontend/src/contexts/ToastContext.jsx` | Toast state management |
+| Skeleton | `frontend/src/components/ui/Skeleton.jsx` | Loading state primitives |
+| TableSkeleton | `frontend/src/components/ui/TableSkeleton.jsx` | Table loading state |
+| CardSkeleton | `frontend/src/components/ui/CardSkeleton.jsx` | Card/dashboard loading states |
+
+### Toast Notifications
+
+Use the toast context instead of `alert()`:
+
+```jsx
+import { useToast } from '../contexts/ToastContext';
+
+const MyComponent = () => {
+    const toast = useToast();
+
+    const handleSave = async () => {
+        try {
+            await api.post('/save');
+            toast.success('Saved successfully!');
+        } catch (e) {
+            toast.error('Failed to save');
+        }
+    };
+};
+```
+
+**Available methods:**
+- `toast.success(message)` - Green success notification
+- `toast.error(message)` - Red error notification
+- `toast.warning(message)` - Amber warning notification
+- `toast.info(message)` - Blue informational notification
+
+### Skeleton Loaders
+
+Replace text loading states with skeletons:
+
+```jsx
+import { DashboardSkeleton } from '../components/ui/CardSkeleton';
+import TableSkeleton from '../components/ui/TableSkeleton';
+
+// For dashboard
+if (loading) return <DashboardSkeleton />;
+
+// For tables
+if (loading) return <TableSkeleton rows={8} />;
+```
+
+**Available skeletons:**
+- `DashboardSkeleton` - Full dashboard layout
+- `ProfileSkeleton` - Profile/settings page
+- `InboxSkeleton` - Needs Review page
+- `DuplicatesSkeleton` - Duplicates page
+- `TableSkeleton` - Generic table rows
+
+### Mobile Responsiveness
+
+- Sidebar collapses to hamburger menu at `<768px` (lg breakpoint)
+- Tables wrapped in `overflow-x-auto` with `min-w-[800px]` for horizontal scroll
+- ChatBot supports touch drag on mobile devices
+- Chat window uses responsive width: `w-[calc(100vw-2rem)] max-w-96 sm:w-96`
+- Modals use `max-w-lg w-full mx-4` for mobile padding
+
+### Accessibility Standards
+
+- All modals trap focus using `useFocusTrap` hook and close with Escape key
+- Chat messages container has `aria-live="polite"` for screen readers
+- All inputs use `focus:border-teal-500` consistently
+- Icon-only buttons have `aria-label` attributes
+- Modals have `role="dialog"`, `aria-modal="true"`, and `aria-labelledby`
+- No array index keys in React lists (use unique IDs)
+
+### Focus Trap Usage
+
+For modals that need keyboard accessibility:
+
+```jsx
+import useFocusTrap from '../hooks/useFocusTrap';
+
+const MyModal = ({ isOpen, onClose }) => {
+    const modalRef = useFocusTrap(isOpen, onClose);
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 ...">
+            <div
+                ref={modalRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="modal-title"
+            >
+                <h2 id="modal-title">Modal Title</h2>
+                {/* Modal content */}
+            </div>
+        </div>
+    );
+};
+```
 
 ## Adding New Features or Fixing Bugs
 

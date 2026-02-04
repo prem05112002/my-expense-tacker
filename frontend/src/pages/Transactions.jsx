@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api/axios';
+import { useToast } from '../contexts/ToastContext';
 import {
     Edit2, TrendingUp, TrendingDown, RotateCcw,
     ChevronLeft, ChevronRight, X, Check, Save, Wand2, Plus
@@ -14,8 +15,12 @@ import SmartSearchInput from '../components/ui/SmartSearchInput';
 import SearchSummary from '../components/ui/SearchSummary';
 import CategoryMultiselect from '../components/ui/CategoryMultiselect';
 import useSmartSearch from '../hooks/useSmartSearch';
+import TableSkeleton from '../components/ui/TableSkeleton';
+import useFocusTrap from '../hooks/useFocusTrap';
 
 const Transactions = () => {
+    const toast = useToast();
+
     // --- STATE ---
     const [transactions, setTransactions] = useState([]);
     const [categories, setCategories] = useState([]);
@@ -55,6 +60,11 @@ const Transactions = () => {
     const [previewStep, setPreviewStep] = useState('INPUT');
     const [previewResults, setPreviewResults] = useState([]);
     const [excludedIds, setExcludedIds] = useState(new Set());
+
+    // Focus trap refs for modals
+    const editModalRef = useFocusTrap(isEditModalOpen, () => setIsEditModalOpen(false));
+    const catModalRef = useFocusTrap(isCatModalOpen, () => setIsCatModalOpen(false));
+    const ruleModalRef = useFocusTrap(showRuleModal, () => { setShowRuleModal(false); setPreviewStep('INPUT'); });
 
     // --- EFFECTS ---
     useEffect(() => {
@@ -186,7 +196,7 @@ const Transactions = () => {
             return newCategory.id;
         } catch (error) {
             console.error("Failed to create category:", error);
-            alert("Failed to create new category.");
+            toast.error("Failed to create new category");
             return null;
         }
     };
@@ -228,7 +238,7 @@ const Transactions = () => {
             if (editingTxn.category_name && !finalCategoryId) {
                 finalCategoryId = await ensureCategoryExists(editingTxn.category_name);
             }
-            if (!finalCategoryId) { alert("Please select a valid category."); return; }
+            if (!finalCategoryId) { toast.warning("Please select a valid category"); return; }
 
             const payload = {
                 merchant_name: editingTxn.merchant_name,
@@ -259,9 +269,10 @@ const Transactions = () => {
 
             setIsEditModalOpen(false);
             setEditingTxn(null);
+            toast.success("Transaction updated successfully");
         } catch (error) {
             console.error("Failed to update transaction", error);
-            alert("Failed to save transaction.");
+            toast.error("Failed to save transaction");
         }
     };
 
@@ -284,7 +295,7 @@ const Transactions = () => {
             setPreviewResults(res.data);
             setExcludedIds(new Set());
             setPreviewStep('PREVIEW');
-        } catch (e) { alert("Failed to preview matches"); } finally { setLoading(false); }
+        } catch (e) { toast.error("Failed to preview matches"); } finally { setLoading(false); }
     };
 
     const toggleExclusion = (id) => {
@@ -305,7 +316,8 @@ const Transactions = () => {
             setShowRuleModal(false);
             setPreviewStep('INPUT');
             fetchTransactions();
-        } catch (e) { alert("Failed to save rule"); }
+            toast.success("Rule created and applied successfully");
+        } catch (e) { toast.error("Failed to save rule"); }
     };
 
     const isLoadingState = loading || smartSearchLoading;
@@ -350,8 +362,8 @@ const Transactions = () => {
 
             {/* --- TABLE AREA --- */}
             <div className="flex-1 overflow-hidden relative">
-                <div className="absolute inset-0 overflow-y-auto custom-scrollbar">
-                    <table className="w-full text-left border-collapse">
+                <div className="absolute inset-0 overflow-y-auto overflow-x-auto custom-scrollbar">
+                    <table className="w-full text-left border-collapse min-w-[800px]">
                         <thead className="sticky top-0 z-10 bg-[#0b0b0b] shadow-[0_1px_0_rgba(255,255,255,0.1)]">
                             <tr>
                                 <SortableHeader label="Date" active={sortConfig.key === 'txn_date'} direction={sortConfig.direction} onClick={() => toggleSort('txn_date')} />
@@ -371,7 +383,7 @@ const Transactions = () => {
 
                         <tbody className="divide-y divide-white/5">
                             {isLoadingState ? (
-                                <tr><td colSpan="6" className="py-20 text-center text-slate-500 animate-pulse">Loading transactions...</td></tr>
+                                <tr><td colSpan="6" className="p-0"><TableSkeleton rows={8} /></td></tr>
                             ) : transactions.length === 0 ? (
                                 <tr><td colSpan="6" className="py-20 text-center text-slate-500">No transactions found</td></tr>
                             ) : (
@@ -416,10 +428,16 @@ const Transactions = () => {
             {/* --- EDIT MODAL --- */}
             {isEditModalOpen && editingTxn && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                    <div className="bg-[#111] w-full max-w-lg rounded-2xl border border-white/10 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                    <div
+                        ref={editModalRef}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="edit-modal-title"
+                        className="bg-[#111] w-full max-w-lg rounded-2xl border border-white/10 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+                    >
                         <div className="p-5 border-b border-white/10 flex justify-between items-center bg-[#161616]">
-                            <h3 className="text-lg font-bold text-white flex items-center gap-2"><Edit2 size={18} className="text-teal-400"/> Edit Transaction</h3>
-                            <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-white"><X size={20}/></button>
+                            <h3 id="edit-modal-title" className="text-lg font-bold text-white flex items-center gap-2"><Edit2 size={18} className="text-teal-400"/> Edit Transaction</h3>
+                            <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-white" aria-label="Close modal"><X size={20}/></button>
                         </div>
                         <div className="p-6 space-y-5 overflow-y-auto">
                             <div className="space-y-1.5">
@@ -480,10 +498,16 @@ const Transactions = () => {
             {/* ADD CATEGORY MODAL (Z-Index 60 to overlap Edit Modal) */}
             {isCatModalOpen && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-[2px] p-4">
-                    <div className="bg-[#111] rounded-2xl border border-white/10 w-full max-w-sm shadow-2xl overflow-hidden">
+                    <div
+                        ref={catModalRef}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="cat-modal-title"
+                        className="bg-[#111] rounded-2xl border border-white/10 w-full max-w-sm shadow-2xl overflow-hidden"
+                    >
                         <div className="p-5 border-b border-white/10 bg-[#161616] flex justify-between items-center">
-                            <h3 className="text-md font-bold text-white">New Category</h3>
-                            <button onClick={() => setIsCatModalOpen(false)} className="text-slate-500 hover:text-white"><X size={18} /></button>
+                            <h3 id="cat-modal-title" className="text-md font-bold text-white">New Category</h3>
+                            <button onClick={() => setIsCatModalOpen(false)} className="text-slate-500 hover:text-white" aria-label="Close modal"><X size={18} /></button>
                         </div>
                         <div className="p-6">
                             <label className="text-xs font-bold text-slate-500 uppercase">Category Name</label>
@@ -501,10 +525,14 @@ const Transactions = () => {
             {showRuleModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                     <div
+                        ref={ruleModalRef}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="rule-modal-title"
                         className="bg-[#111] border border-white/10 p-6 rounded-xl w-full max-w-lg max-h-[80vh] flex flex-col box-shadow-xl"
                         style={{ boxShadow: '0 4px 60px -15px rgba(45, 212, 191, 0.2)' }}
                     >
-                        <h3 className="text-xl text-white font-bold mb-6 flex items-center gap-3 border-b border-white/5 pb-4">
+                        <h3 id="rule-modal-title" className="text-xl text-white font-bold mb-6 flex items-center gap-3 border-b border-white/5 pb-4">
                             <Wand2 style={{ color: 'rgb(45, 212, 191)' }} size={24} />
                             {previewStep === 'INPUT' ? "Create Automation Rule" : "Verify Matches"}
                         </h3>

@@ -15,6 +15,7 @@ const ChatBot = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState([
         {
+            id: crypto.randomUUID(),
             type: 'bot',
             text: "Hi! I'm your financial assistant. Ask me about your budget, spending trends, or affordability of purchases.",
         },
@@ -23,6 +24,7 @@ const ChatBot = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [rateLimit, setRateLimit] = useState(null);
     const messagesEndRef = useRef(null);
+    const inputRef = useRef(null);
 
     // Draggable state
     const [position, setPosition] = useState(() => {
@@ -50,6 +52,10 @@ const ChatBot = () => {
         if (isOpen && !rateLimit) {
             fetchRateLimit();
         }
+        // Focus input when chat opens
+        if (isOpen && inputRef.current) {
+            inputRef.current.focus();
+        }
     }, [isOpen, rateLimit]);
 
     // Save position to localStorage when it changes
@@ -57,7 +63,18 @@ const ChatBot = () => {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(position));
     }, [position]);
 
-    // Drag handlers
+    // Escape key handler
+    useEffect(() => {
+        const handleEscape = (e) => {
+            if (e.key === 'Escape' && isOpen) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('keydown', handleEscape);
+        return () => document.removeEventListener('keydown', handleEscape);
+    }, [isOpen]);
+
+    // Mouse drag handlers
     const handleDragStart = useCallback((e) => {
         if (isOpen) return; // Don't allow dragging when chat is open
         e.preventDefault();
@@ -74,8 +91,13 @@ const ChatBot = () => {
     const handleDragMove = useCallback((e) => {
         if (!isDragging) return;
 
-        const deltaX = dragStartPos.current.x - e.clientX;
-        const deltaY = dragStartPos.current.y - e.clientY;
+        const clientX = e.clientX || (e.touches && e.touches[0]?.clientX);
+        const clientY = e.clientY || (e.touches && e.touches[0]?.clientY);
+
+        if (clientX === undefined || clientY === undefined) return;
+
+        const deltaX = dragStartPos.current.x - clientX;
+        const deltaY = dragStartPos.current.y - clientY;
 
         // Mark as dragged if there's any movement
         if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
@@ -92,17 +114,56 @@ const ChatBot = () => {
         setIsDragging(false);
     }, []);
 
-    // Attach global mouse listeners for dragging
+    // Touch drag handlers
+    const handleTouchStart = useCallback((e) => {
+        if (isOpen) return;
+        const touch = e.touches[0];
+        setIsDragging(true);
+        hasDragged.current = false;
+        dragStartPos.current = {
+            x: touch.clientX,
+            y: touch.clientY,
+            bottom: position.bottom,
+            right: position.right,
+        };
+    }, [isOpen, position]);
+
+    const handleTouchMove = useCallback((e) => {
+        if (!isDragging) return;
+        const touch = e.touches[0];
+
+        const deltaX = dragStartPos.current.x - touch.clientX;
+        const deltaY = dragStartPos.current.y - touch.clientY;
+
+        if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+            hasDragged.current = true;
+        }
+
+        const newRight = Math.max(24, Math.min(window.innerWidth - 80, dragStartPos.current.right + deltaX));
+        const newBottom = Math.max(24, Math.min(window.innerHeight - 80, dragStartPos.current.bottom + deltaY));
+
+        setPosition({ right: newRight, bottom: newBottom });
+    }, [isDragging]);
+
+    const handleTouchEnd = useCallback(() => {
+        setIsDragging(false);
+    }, []);
+
+    // Attach global mouse/touch listeners for dragging
     useEffect(() => {
         if (isDragging) {
             window.addEventListener('mousemove', handleDragMove);
             window.addEventListener('mouseup', handleDragEnd);
+            window.addEventListener('touchmove', handleTouchMove, { passive: false });
+            window.addEventListener('touchend', handleTouchEnd);
             return () => {
                 window.removeEventListener('mousemove', handleDragMove);
                 window.removeEventListener('mouseup', handleDragEnd);
+                window.removeEventListener('touchmove', handleTouchMove);
+                window.removeEventListener('touchend', handleTouchEnd);
             };
         }
-    }, [isDragging, handleDragMove, handleDragEnd]);
+    }, [isDragging, handleDragMove, handleDragEnd, handleTouchMove, handleTouchEnd]);
 
     // Calculate chat window position to keep it within viewport bounds
     const getChatWindowPosition = useCallback(() => {
@@ -154,7 +215,7 @@ const ChatBot = () => {
 
         const userMessage = input.trim();
         setInput('');
-        setMessages((prev) => [...prev, { type: 'user', text: userMessage }]);
+        setMessages((prev) => [...prev, { id: crypto.randomUUID(), type: 'user', text: userMessage }]);
         setIsLoading(true);
 
         try {
@@ -164,6 +225,7 @@ const ChatBot = () => {
             setMessages((prev) => [
                 ...prev,
                 {
+                    id: crypto.randomUUID(),
                     type: 'bot',
                     text: botResponse,
                     intent,
@@ -177,6 +239,7 @@ const ChatBot = () => {
             setMessages((prev) => [
                 ...prev,
                 {
+                    id: crypto.randomUUID(),
                     type: 'bot',
                     text: 'Sorry, something went wrong. Please try again.',
                     isError: true,
@@ -211,6 +274,7 @@ const ChatBot = () => {
                 ref={dragRef}
                 onClick={handleButtonClick}
                 onMouseDown={handleDragStart}
+                onTouchStart={handleTouchStart}
                 style={{
                     bottom: `${position.bottom}px`,
                     right: `${position.right}px`,
@@ -220,7 +284,8 @@ const ChatBot = () => {
                            rounded-full shadow-lg flex items-center justify-center
                            transition-colors duration-300 z-50 select-none
                            ${isDragging ? 'scale-110' : ''}`}
-                aria-label="Toggle chat"
+                aria-label={isOpen ? 'Close chat' : 'Open chat'}
+                aria-expanded={isOpen}
                 title={isOpen ? 'Close chat' : 'Drag to move, click to open'}
             >
                 {isOpen ? (
@@ -242,12 +307,16 @@ const ChatBot = () => {
                         bottom: `${getChatWindowPosition().bottom}px`,
                         right: `${getChatWindowPosition().right}px`,
                     }}
-                    className="fixed w-96 h-[500px] bg-[#121212] border border-slate-700
-                               rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden">
+                    className="fixed w-[calc(100vw-2rem)] max-w-96 sm:w-96 h-[500px] bg-[#121212] border border-slate-700
+                               rounded-xl shadow-2xl flex flex-col z-50 overflow-hidden"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Financial Assistant Chat"
+                >
                     {/* Header */}
                     <div className="bg-teal-600 px-4 py-3 flex items-center justify-between">
                         <div>
-                            <h3 className="font-semibold text-white">Financial Assistant</h3>
+                            <h3 className="font-semibold text-white" id="chatbot-title">Financial Assistant</h3>
                             {rateLimit && (
                                 <p className="text-xs text-teal-200">
                                     {rateLimit.daily_remaining} queries remaining today
@@ -256,7 +325,8 @@ const ChatBot = () => {
                         </div>
                         <button
                             onClick={() => setIsOpen(false)}
-                            className="text-white/70 hover:text-white"
+                            className="text-white/70 hover:text-white p-1 rounded hover:bg-white/10 transition-colors"
+                            aria-label="Close chat"
                         >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -265,10 +335,15 @@ const ChatBot = () => {
                     </div>
 
                     {/* Messages */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                        {messages.map((msg, idx) => (
+                    <div
+                        className="flex-1 overflow-y-auto p-4 space-y-4"
+                        role="log"
+                        aria-live="polite"
+                        aria-label="Chat messages"
+                    >
+                        {messages.map((msg) => (
                             <div
-                                key={idx}
+                                key={msg.id}
                                 className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}
                             >
                                 <div
@@ -281,11 +356,6 @@ const ChatBot = () => {
                                         }`}
                                 >
                                     {msg.text}
-                                    {msg.intent && (
-                                        <span className="block mt-1 text-xs opacity-60">
-                                            [{msg.intent}]
-                                        </span>
-                                    )}
                                 </div>
                             </div>
                         ))}
@@ -308,9 +378,9 @@ const ChatBot = () => {
                     {/* Suggestions */}
                     {messages.length <= 2 && (
                         <div className="px-4 pb-2 flex flex-wrap gap-2">
-                            {suggestedQueries.map((query, idx) => (
+                            {suggestedQueries.map((query) => (
                                 <button
-                                    key={idx}
+                                    key={query}
                                     onClick={() => handleSuggestion(query)}
                                     className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300
                                              px-3 py-1.5 rounded-full transition-colors"
@@ -325,6 +395,7 @@ const ChatBot = () => {
                     <div className="border-t border-slate-700 p-3">
                         <div className="flex items-center gap-2">
                             <input
+                                ref={inputRef}
                                 type="text"
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
@@ -334,18 +405,27 @@ const ChatBot = () => {
                                          text-sm text-slate-200 placeholder-slate-500
                                          focus:outline-none focus:border-teal-500"
                                 disabled={isLoading}
+                                aria-label="Type your message"
                             />
                             <button
                                 onClick={handleSend}
                                 disabled={isLoading || !input.trim()}
                                 className="bg-teal-600 hover:bg-teal-700 disabled:bg-slate-700
                                          disabled:cursor-not-allowed px-4 py-2 rounded-lg
-                                         transition-colors"
+                                         transition-colors flex items-center justify-center min-w-[52px]"
+                                aria-label={isLoading ? 'Sending message' : 'Send message'}
                             >
-                                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                          d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                                </svg>
+                                {isLoading ? (
+                                    <svg className="w-5 h-5 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                ) : (
+                                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                              d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                    </svg>
+                                )}
                             </button>
                         </div>
                     </div>

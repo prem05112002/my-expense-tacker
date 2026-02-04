@@ -1,18 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api/axios';
-import { 
-    Mail, Trash2, CheckCircle, Calendar, 
-    CreditCard, ArrowRight, AlertCircle, FileText, X 
+import { useToast } from '../contexts/ToastContext';
+import {
+    Mail, Trash2, CheckCircle, Calendar,
+    CreditCard, ArrowRight, AlertCircle, FileText, X
 } from 'lucide-react';
+import { InboxSkeleton } from '../components/ui/CardSkeleton';
+import useFocusTrap from '../hooks/useFocusTrap';
 
 const NeedsReview = () => {
+    const toast = useToast();
     const [items, setItems] = useState([]);
     const [selectedId, setSelectedId] = useState(null);
     const [loading, setLoading] = useState(true);
     const [processing, setProcessing] = useState(false);
-    
+
     // Modal State
     const [showDismissModal, setShowDismissModal] = useState(false);
+
+    const dismissModalRef = useFocusTrap(showDismissModal, () => setShowDismissModal(false));
 
     // Form State
     const [formData, setFormData] = useState({
@@ -71,9 +77,10 @@ const NeedsReview = () => {
             setItems(prev => prev.filter(i => i.id !== selectedId));
             setSelectedId(null);
             setShowDismissModal(false);
+            toast.success("Email dismissed successfully");
         } catch (error) {
             console.error("Failed to dismiss item", error);
-            alert("Error dismissing item");
+            toast.error("Error dismissing item");
         } finally {
             setProcessing(false);
         }
@@ -82,7 +89,7 @@ const NeedsReview = () => {
     const handleSave = async (e) => {
         e.preventDefault();
         if (!formData.amount || !formData.merchant_name) {
-            alert("Please fill in Amount and Merchant Name");
+            toast.warning("Please fill in Amount and Merchant Name");
             return;
         }
 
@@ -95,9 +102,10 @@ const NeedsReview = () => {
             });
             setItems(prev => prev.filter(i => i.id !== selectedId));
             setSelectedId(null);
+            toast.success("Transaction created successfully");
         } catch (error) {
             console.error("Failed to convert item", error);
-            alert("Error creating transaction");
+            toast.error("Error creating transaction");
         } finally {
             setProcessing(false);
         }
@@ -105,7 +113,7 @@ const NeedsReview = () => {
 
     const selectedItem = items.find(i => i.id === selectedId);
 
-    if (loading) return <div className="p-10 text-white animate-pulse">Loading Inbox...</div>;
+    if (loading) return <InboxSkeleton />;
 
     return (
         <div className="flex h-[calc(100vh-4rem)] bg-[#0b0b0b] rounded-2xl border border-white/5 overflow-hidden relative">
@@ -113,20 +121,27 @@ const NeedsReview = () => {
             {/* --- CUSTOM CONFIRMATION MODAL --- */}
             {showDismissModal && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <div className="bg-[#111] border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl shadow-black">
+                    <div
+                        ref={dismissModalRef}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="dismiss-modal-title"
+                        className="bg-[#111] border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl shadow-black"
+                    >
                         <div className="flex justify-between items-start mb-4">
                             <div className="p-3 bg-red-500/10 rounded-full">
                                 <Trash2 className="text-red-500" size={24} />
                             </div>
-                            <button 
+                            <button
                                 onClick={() => setShowDismissModal(false)}
                                 className="text-slate-500 hover:text-white transition-colors"
+                                aria-label="Close modal"
                             >
                                 <X size={20} />
                             </button>
                         </div>
-                        
-                        <h3 className="text-white text-lg font-bold mb-2">Delete Email?</h3>
+
+                        <h3 id="dismiss-modal-title" className="text-white text-lg font-bold mb-2">Delete Email?</h3>
                         <p className="text-slate-400 text-sm mb-6 leading-relaxed">
                             Are you sure you want to dismiss this email? It will be permanently removed from your review list.
                         </p>
@@ -225,7 +240,7 @@ const NeedsReview = () => {
                                     <label className="block text-slate-500 text-xs mb-1">Merchant Name</label>
                                     <input 
                                         type="text" 
-                                        className="w-full bg-[#1e1e1e] border border-white/10 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500 transition-colors"
+                                        className="w-full bg-[#1e1e1e] border border-white/10 rounded px-3 py-2 text-white focus:outline-none focus:border-teal-500 transition-colors"
                                         value={formData.merchant_name}
                                         onChange={e => setFormData({...formData, merchant_name: e.target.value})}
                                         placeholder="e.g. Swiggy, Uber"
@@ -236,7 +251,7 @@ const NeedsReview = () => {
                                     <label className="block text-slate-500 text-xs mb-1">Amount (₹)</label>
                                     <input 
                                         type="number" 
-                                        className="w-full bg-[#1e1e1e] border border-white/10 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500 transition-colors font-mono"
+                                        className="w-full bg-[#1e1e1e] border border-white/10 rounded px-3 py-2 text-white focus:outline-none focus:border-teal-500 transition-colors font-mono"
                                         value={formData.amount}
                                         onChange={e => setFormData({...formData, amount: e.target.value})}
                                         placeholder="0.00"
@@ -249,7 +264,7 @@ const NeedsReview = () => {
                                         <Calendar size={14} className="absolute left-3 top-3 text-slate-500" />
                                         <input 
                                             type="date" 
-                                            className="w-full bg-[#1e1e1e] border border-white/10 rounded pl-9 pr-3 py-2 text-white focus:outline-none focus:border-blue-500 transition-colors"
+                                            className="w-full bg-[#1e1e1e] border border-white/10 rounded pl-9 pr-3 py-2 text-white focus:outline-none focus:border-teal-500 transition-colors"
                                             value={formData.txn_date}
                                             onChange={e => setFormData({...formData, txn_date: e.target.value})}
                                         />
@@ -259,7 +274,7 @@ const NeedsReview = () => {
                                 <div>
                                     <label className="block text-slate-500 text-xs mb-1">Category</label>
                                     <select 
-                                        className="w-full bg-[#1e1e1e] border border-white/10 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500 transition-colors"
+                                        className="w-full bg-[#1e1e1e] border border-white/10 rounded px-3 py-2 text-white focus:outline-none focus:border-teal-500 transition-colors"
                                         value={formData.category_id}
                                         onChange={e => setFormData({...formData, category_id: e.target.value})}
                                     >
