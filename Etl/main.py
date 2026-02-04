@@ -1,5 +1,5 @@
 from datetime import datetime
-from config import SOURCE_FOLDER, DEST_FOLDER, NON_TXN_FOLDER
+from config import SOURCE_FOLDER, DEST_FOLDER, NON_TXN_FOLDER, validate_env
 from database import init_db, save_transaction, save_unmatched, get_db_connection, get_active_rules
 from parsers import extract_metadata, clean_text
 from email_service import EmailService
@@ -82,10 +82,13 @@ def pipeline_job():
             apply_rules_to_txn(transaction, active_rules)
             # --- SCENARIO A: It IS a Transaction ---
             print(f"✅ Transaction Found: {transaction.amount}")
-            save_transaction(transaction)
-            
-            # Since we are sure, MOVE it out of Inbox immediately
-            service.move_email(e_id, DEST_FOLDER)
+            try:
+                save_transaction(transaction)
+                # Only move email on successful save to prevent data loss
+                service.move_email(e_id, DEST_FOLDER)
+            except Exception as e:
+                print(f"❌ Failed to save transaction, email NOT moved: {e}")
+                continue
         else:
             # --- SCENARIO B: Needs Review ---
             print(f"📥 Needs Review: {subject[:40]}...")
@@ -105,4 +108,6 @@ def pipeline_job():
     print("✅ Pipeline Finished.")
 
 if __name__ == "__main__":
+    # Validate environment variables when running standalone
+    validate_env()
     pipeline_job()

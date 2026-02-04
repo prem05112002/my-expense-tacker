@@ -44,11 +44,11 @@ def get_predicted_category(cur, merchant_name):
     """
     if not merchant_name: return None
     
-    # ILIKE '%%' || keyword || '%%' allows partial matching
+    # ILIKE '%%' || pattern || '%%' allows partial matching
     # e.g., Rule "Zomato" matches merchant "Zomato UPI"
     cur.execute("""
-        SELECT category_id FROM category_rules 
-        WHERE %s ILIKE '%%' || keyword || '%%' 
+        SELECT category_id FROM transaction_rules
+        WHERE %s ILIKE '%%' || pattern || '%%'
         LIMIT 1
     """, (merchant_name,))
     
@@ -91,11 +91,14 @@ def init_db():
         ('Uncategorized', '#cbd5e1')
         ON CONFLICT (name) DO NOTHING
         """,
-        # Rules Table
+        # Rules Table (matches backend schema)
         """
-        CREATE TABLE IF NOT EXISTS category_rules (
+        CREATE TABLE IF NOT EXISTS transaction_rules (
             id SERIAL PRIMARY KEY,
             keyword VARCHAR(100) NOT NULL,
+            pattern VARCHAR(255),
+            new_merchant_name VARCHAR(255),
+            match_type VARCHAR(20) DEFAULT 'CONTAINS',
             category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )

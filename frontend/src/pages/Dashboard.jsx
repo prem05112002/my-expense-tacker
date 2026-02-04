@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api/axios';
-import { 
-    Wallet, TrendingUp, TrendingDown, Settings, Calendar, PiggyBank, ArrowRight, AlertTriangle
+import {
+    Wallet, TrendingUp, TrendingDown, Settings, Calendar, PiggyBank, ArrowRight, AlertTriangle, RefreshCw
 } from 'lucide-react';
 import { 
     LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend
@@ -12,8 +12,32 @@ import { getAmountColor, formatCurrency } from '../utils/formatters';
 const Dashboard = () => {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [cycleOffset, setCycleOffset] = useState(0); 
-    
+    const [cycleOffset, setCycleOffset] = useState(0);
+    const [syncing, setSyncing] = useState(false);
+    const [syncResult, setSyncResult] = useState(null);
+
+    const handleSync = async () => {
+        if (syncing) return;
+
+        setSyncing(true);
+        setSyncResult(null);
+
+        try {
+            const res = await api.post('/sync/trigger');
+            setSyncResult(res.data);
+
+            // Refresh dashboard data after sync completes
+            if (res.data.status === 'completed' && res.data.transactions_saved > 0) {
+                await fetchStats();
+            }
+        } catch (error) {
+            console.error("Sync failed:", error);
+            setSyncResult({ status: 'failed', error: error.message || 'Sync failed' });
+        } finally {
+            setSyncing(false);
+        }
+    };
+
     const fetchStats = async () => {
         try {
             setLoading(true);
@@ -97,6 +121,20 @@ const Dashboard = () => {
                             <ChevronDown size={14} className="text-slate-400" />
                         </div>
                     </div>
+
+                    <button
+                        onClick={handleSync}
+                        disabled={syncing}
+                        className="bg-[#1a1a1a] hover:bg-[#252525] text-white p-2 rounded-lg border border-white/10 transition-all hover:border-teal-500/50 disabled:opacity-50 disabled:cursor-not-allowed relative group"
+                        title="Sync emails"
+                    >
+                        <RefreshCw size={20} className={`text-teal-400 ${syncing ? 'animate-spin' : ''}`} />
+                        {syncResult && syncResult.status === 'completed' && syncResult.transactions_saved > 0 && (
+                            <span className="absolute -top-1 -right-1 bg-teal-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                                {syncResult.transactions_saved}
+                            </span>
+                        )}
+                    </button>
 
                     <Link to="/profile" className="bg-[#1a1a1a] hover:bg-[#252525] text-white p-2 rounded-lg border border-white/10 transition-all hover:border-blue-500/50">
                         <Settings size={20} className="text-blue-400" />

@@ -106,6 +106,7 @@ Tables defined in `backend/app/models.py:1-77`
 | `/subscription` | Recurring expenses | Track subscriptions |
 | `/trends` | Spending trends | Monthly/category analysis, affordability simulation |
 | `/chatbot` | Financial assistant | LLM-powered Q&A about finances |
+| `/sync` | Email sync | Trigger ETL pipeline from dashboard |
 
 ## Spending Trends Engine
 
@@ -267,3 +268,34 @@ The affordability calculator supports two budget types:
 - **Budget shows ₹0 or error**: No income transactions found in configured income categories. Ensure salary/income transactions exist and are categorized correctly.
 - **Wrong percentage applied**: Check that `budget_type` is set to `"PERCENTAGE"` in dashboard settings, not `"FIXED"`.
 - **Incorrect income categories**: Verify `income_categories` in settings includes the category name for your salary transactions (e.g., "Salary", "Income").
+
+### ETL pipeline not applying rules
+
+If auto-categorization rules aren't being applied during email sync:
+
+1. **Table name mismatch**: The ETL was querying `category_rules` instead of `transaction_rules`. This has been fixed.
+2. **Verify rules exist**: Check that rules are created in the Rules page before running sync.
+
+### Sync fails with "column 'keyword' does not exist"
+
+**Fixed:** The ETL rule-matching query in `Etl/database.py:51` was using `keyword` but the actual column in `transaction_rules` is `pattern`. The query has been updated to use the correct column name.
+
+### Chatbot affordability returns bullet-points instead of conversational response
+
+**Fixed:** The `handle_affordability` function in `backend/app/services/chatbot.py` was returning hardcoded bullet-points without attempting LLM formatting. It now follows the same pattern as other handlers:
+1. Computes data locally
+2. Creates bullet-point fallback
+3. Tries LLM formatting via `_format_response_with_llm()`
+4. Returns LLM response if valid, otherwise uses fallback
+
+With `GEMINI_API_KEY` configured, affordability queries now return conversational responses.
+
+### Email sync data loss
+
+The ETL now uses a try-except wrapper around save_transaction. If the database save fails, the email is NOT moved out of the source folder, preventing data loss.
+
+### ETL environment variables
+
+The ETL validates required environment variables on startup. If any are missing, it will exit with a helpful error message listing the missing variables. Required vars:
+- `IMAP_USER`, `IMAP_PASSWORD` - Gmail credentials
+- `PG_HOST`, `DB_NAME`, `DB_USER`, `DB_PASS` - PostgreSQL credentials
