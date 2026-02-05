@@ -44,8 +44,10 @@ expense-tracker/
 | Frontend entry | `frontend/src/App.jsx` | React Router setup |
 | API client | `frontend/src/api/axios.js` | Base URL: localhost:8000 |
 | Trends engine | `backend/app/services/trends.py` | Spending pattern analysis |
-| Chatbot service | `backend/app/services/chatbot.py` | LLM-powered financial assistant |
-| Chat widget | `frontend/src/components/ChatBot.jsx` | Floating chat UI |
+| Agent system | `backend/app/services/agents/` | Multi-agent chatbot system (orchestrator, parser, compute agents) |
+| Chatbot service | `backend/app/services/chatbot.py` | Legacy chatbot service (fallback only) |
+| Chatbot compute | `backend/app/services/chatbot_compute.py` | Modular computation functions for chatbot |
+| Chat widget | `frontend/src/components/ChatBot.jsx` | Floating chat UI with session management |
 | Smart search | `backend/app/services/smart_search.py` | AI-powered natural language transaction search |
 | Search summary | `frontend/src/components/ui/SearchSummary.jsx` | Debit/credit totals display |
 
@@ -131,34 +133,187 @@ The trends engine (`backend/app/services/trends.py`) provides spending pattern a
 
 ## Chatbot (Financial Assistant)
 
-Privacy-first LLM chatbot (`backend/app/services/chatbot.py`) with local computation:
+Privacy-first LLM chatbot with conversational AI, session memory, and predictive capabilities.
 
-**Architecture:**
+**Design Principle:** "The LLM is the Brain, but the Backend is the Hands"
+- LLM handles planning (query parsing) and natural language (response formatting)
+- Python agents execute secure local financial computations
+
+**Architecture (Multi-Agent System):**
 ```
-User Question → Intent Detection (LOCAL) → Handler
-                                              ↓
-                    ┌─────────────────────────┴─────────────────────────┐
-                    ↓                                                   ↓
-             LOCAL COMPUTE                                        LLM API (Gemini)
-             - Budget calculations                                - Product price lookup
-             - Trend analysis                                     - Response formatting
-             - Affordability check                                (No financial data sent)
+User Query + Session ID
+        ↓
+┌─────────────────────────────────────────────────────────────┐
+│                        ORCHESTRATOR                          │
+│  - Manages session (30min TTL)                              │
+│  - Creates TaskDAG via ParserAgent                          │
+│  - Executes tasks (parallel when independent)               │
+│  - Formats response via AggregatorAgent                     │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+         ┌───────────────────┼───────────────────┐
+         ↓                   ↓                   ↓
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│  PARSER AGENT   │  │  COMPUTE AGENTS │  │ AGGREGATOR AGENT│
+│  (LLM-powered)  │  │  (Python only)  │  │  (LLM-powered)  │
+│                 │  │                 │  │                 │
+│ - Parse query   │  │ - BudgetAgent   │  │ - Combine data  │
+│ - Create DAG    │  │ - TrendsAgent   │  │ - Format prose  │
+│ - Set deps      │  │ - ForecastAgent │  │ - Handle errors │
+└─────────────────┘  │ - AffordAgent   │  └─────────────────┘
+                     └─────────────────┘
 ```
+
+**Fallback:** If LLM unavailable or rate limited, falls back to regex-based intent detection (legacy `chatbot.py`).
+
+**Session Memory:**
+- Sessions stored in-memory with 30-minute TTL
+- Max 1000 concurrent sessions
+- Last 10 messages stored per session
+- Enables follow-up queries: "What about last month?" (uses previous category)
+- Frontend stores session_id in sessionStorage
 
 **Supported Queries:**
+
+*Simple queries:*
 - Budget status: "What's my remaining budget?"
 - Category spending: "How much do I spend on food?"
 - Trends: "What are my spending trends?"
 - Affordability: "Can I buy an iPhone 15 in EMI?"
 - Savings: "Where can I cut expenses?"
 
+*Time-range queries:*
+- "How much have I spent on fuel in the past 3 months?"
+- "What's my food spending this month?"
+- "Spending on entertainment last week"
+
+*Predictive queries:*
+- "Can I save ₹50,000 in 6 months?"
+- "Will I stay under budget this month?"
+- "What's my average monthly food spending?"
+- "Is my spending increasing or decreasing?"
+
+*Complex/hypothetical queries:*
+- "If I reduce food spending by 10k per month, can I afford Japan flights in 6 months?"
+- "What if I cut my entertainment budget in half for 3 months?"
+
+*Follow-up queries (requires session):*
+- "What about last month?" (uses previous query context)
+- "And for entertainment?" (switches category, keeps time range)
+
+**Operation Types:**
+| Type | Description | Params |
+|------|-------------|--------|
+| `budget_status` | Current budget, spending, remaining | None |
+| `category_spend` | Spending for a category | `category_name` |
+| `trends_overview` | Spending trends analysis | None |
+| `affordability_check` | Can user afford X (auto-fetches price) | `product_name`, `monthly_cost` |
+| `savings_advice` | Savings suggestions | None |
+| `custom_scenario` | Project future savings with adjustments | `adjustments`, `months` |
+| `time_range_spend` | Spending for specific period | `category_name`, `months_back`, `relative` |
+| `average_spending` | Average monthly spending | `category_name`, `months_back` |
+| `spending_velocity` | Rate of spending change | `window_days` |
+| `future_projection` | Project future spending/savings | `months_forward`, `adjustments` |
+| `goal_planning` | Plan to reach savings goal | `target_amount`, `target_months`, `goal_name` |
+| `budget_forecast` | Will I stay under budget? | `days_forward` |
+| `clarify` | Ask follow-up question | `question` |
+
+**Modular Compute Functions (`chatbot_compute.py`):**
+| Function | Description |
+|----------|-------------|
+| `get_avg_spending_by_category()` | Average monthly spend per category |
+| `get_avg_transaction_amount()` | Average transaction value with filters |
+| `get_spending_velocity()` | Rate of spending change (current vs previous window) |
+| `get_category_breakdown_for_period()` | Category breakdown for date range |
+| `calculate_time_range_spend()` | Flexible time range spending totals |
+| `project_future_spending()` | Multi-month projection with adjustments |
+| `calculate_goal_plan()` | Plan to reach savings goal with suggestions |
+| `forecast_budget_status()` | Forecast budget status for end of cycle |
+
+**Historical Averaging (`_get_historical_averages`):**
+For predictive queries, the system uses 3-month historical data:
+- `avg_monthly_budget` - Average budget (fixed or % of income)
+- `avg_monthly_spend` - Average total spending
+- `avg_monthly_surplus` - Budget minus spend (savings capacity)
+- `avg_category_spend` - Average spend per category
+
+**Chained Operations:** For complex queries, operations chain together with shared context:
+```
+custom_scenario → accumulated_context → affordability_check
+     ↓                                        ↓
+Calculate projected savings       Compare savings vs product price
+```
+
+**Example Flow:** "Can I afford Japan flights if I reduce food by 10k for 6 months?"
+1. `custom_scenario`: Uses historical avg_food_spend, calculates new surplus, projects 6-month savings
+2. `affordability_check`: Gets flight price from LLM, compares against projected savings
+3. Returns: "Yes, by saving ₹10k/month on food, you'll have ₹X after 6 months, which covers the ₹Y flight cost."
+
 **Rate Limits (Gemini Free Tier):**
 - 15 requests/minute
 - 1,500 requests/day
+- Conversational flow uses ~2 LLM calls per message (analyze + format)
 
-**Endpoints:**
-- `POST /chatbot/ask` - Send message, get response
+**Key Files:**
+| File | Purpose |
+|------|---------|
+| `backend/app/services/agents/` | Multi-agent system directory |
+| `backend/app/services/agents/__init__.py` | Main exports: `process_chat_message`, `get_rate_limit_status` |
+| `backend/app/services/agents/orchestrator.py` | DAG execution, topological sort, parallel processing |
+| `backend/app/services/agents/parser.py` | LLM query parsing → TaskDAG |
+| `backend/app/services/agents/aggregator.py` | LLM response formatting |
+| `backend/app/services/agents/memory.py` | SessionManager, ConversationSession |
+| `backend/app/services/agents/llm.py` | Gemini API client, rate limiting |
+| `backend/app/services/agents/compute/` | Compute agents directory |
+| `backend/app/services/agents/compute/budget.py` | BudgetAgent: budget_status, category_spend, budget_forecast |
+| `backend/app/services/agents/compute/trends.py` | TrendsAgent: trends_overview, savings_advice, spending_velocity |
+| `backend/app/services/agents/compute/forecast.py` | ForecastAgent: time_range_spend, average_spending, custom_scenario, goal_planning |
+| `backend/app/services/agents/compute/affordability.py` | AffordabilityAgent: affordability_check (with LLM price lookup) |
+| `backend/app/schemas/agents/task.py` | Task, TaskDAG, TaskResult, TaskStatus, TaskType |
+| `backend/app/schemas/agents/trace.py` | ExecutionTrace, TraceEvent (debugging/observability) |
+| `backend/app/services/chatbot.py` | Legacy monolithic service (fallback only) |
+| `backend/app/services/chatbot_compute.py` | Shared computation functions used by agents |
+| `frontend/src/components/ChatBot.jsx` | Chat widget with session support |
+
+**Agent-to-TaskType Mapping:**
+| Agent | Task Types |
+|-------|------------|
+| BudgetAgent | `budget_status`, `category_spend`, `budget_forecast` |
+| TrendsAgent | `trends_overview`, `savings_advice`, `spending_velocity` |
+| ForecastAgent | `time_range_spend`, `average_spending`, `future_projection`, `custom_scenario`, `goal_planning` |
+| AffordabilityAgent | `affordability_check` |
+
+**Parallel Execution:**
+The orchestrator uses topological sort to identify independent tasks:
+```
+Level 0: [Task A, Task B]  → Run in parallel
+Level 1: [Task C depends on A]  → Run after Level 0 completes
+```
+For "If I reduce food by 10k, can I afford Japan flights?":
+- Level 0: `custom_scenario` (calculate projected savings)
+- Level 1: `affordability_check` (uses savings from Level 0)
+
+**API:**
+- `POST /chatbot/ask` - Send message with optional `session_id`, get response with `session_id`
 - `GET /chatbot/rate-limit` - Check remaining requests
+
+**Request/Response:**
+```json
+// Request
+{
+  "message": "How much have I spent on food?",
+  "session_id": "optional-session-id"
+}
+
+// Response
+{
+  "response": "You've spent ₹12,500 on food this cycle...",
+  "intent": "conversational",
+  "requires_llm": true,
+  "rate_limit": {"daily_remaining": 1480, "minute_remaining": 13},
+  "session_id": "uuid-for-follow-up-queries"
+}
+```
 
 ## Smart Search & Transaction Summary
 

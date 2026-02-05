@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import api from '../api/axios';
 
 const STORAGE_KEY = 'chatbot-position';
+const SESSION_KEY = 'chatbot-session-id';
 const DEFAULT_POSITION = { bottom: 24, right: 24 };
 
 // Chat window dimensions for viewport boundary calculations
@@ -17,7 +18,7 @@ const ChatBot = () => {
         {
             id: crypto.randomUUID(),
             type: 'bot',
-            text: "Hi! I'm your financial assistant. Ask me about your budget, spending trends, or affordability of purchases.",
+            text: "Hi! I'm your financial assistant. Ask me about your budget, spending trends, savings goals, or affordability of purchases. I can remember our conversation for follow-up questions!",
         },
     ]);
     const [input, setInput] = useState('');
@@ -25,6 +26,15 @@ const ChatBot = () => {
     const [rateLimit, setRateLimit] = useState(null);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
+
+    // Session management for multi-turn conversations
+    const [sessionId, setSessionId] = useState(() => {
+        try {
+            return sessionStorage.getItem(SESSION_KEY) || null;
+        } catch {
+            return null;
+        }
+    });
 
     // Draggable state
     const [position, setPosition] = useState(() => {
@@ -219,8 +229,24 @@ const ChatBot = () => {
         setIsLoading(true);
 
         try {
-            const response = await api.post('/chatbot/ask', { message: userMessage });
-            const { response: botResponse, intent, rate_limit } = response.data;
+            // Include session_id for multi-turn conversation support
+            const payload = { message: userMessage };
+            if (sessionId) {
+                payload.session_id = sessionId;
+            }
+
+            const response = await api.post('/chatbot/ask', payload);
+            const { response: botResponse, intent, rate_limit, session_id: returnedSessionId } = response.data;
+
+            // Store session ID for future requests
+            if (returnedSessionId) {
+                setSessionId(returnedSessionId);
+                try {
+                    sessionStorage.setItem(SESSION_KEY, returnedSessionId);
+                } catch {
+                    // sessionStorage might not be available
+                }
+            }
 
             setMessages((prev) => [
                 ...prev,
@@ -259,8 +285,8 @@ const ChatBot = () => {
 
     const suggestedQueries = [
         "What's my budget status?",
-        "How much do I spend on food?",
-        "Where can I save money?",
+        "Will I stay under budget?",
+        "Can I save ₹50k in 6 months?",
     ];
 
     const handleSuggestion = (query) => {

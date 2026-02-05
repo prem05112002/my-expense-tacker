@@ -12,3 +12,4 @@ httpx
 python-dotenv
 beautifulsoup4
 flask-cors
+httpcore
