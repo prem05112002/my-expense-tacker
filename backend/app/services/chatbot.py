@@ -564,6 +564,8 @@ async def _get_historical_averages(db: AsyncSession, months_back: int = 3) -> Di
     """
     Calculate historical monthly averages for budget planning and projections.
     Returns average monthly income, spend, spend by category, and monthly surplus.
+
+    Note: Excludes current month as it has incomplete data.
     """
     from .rules import get_or_create_settings
     from collections import defaultdict
@@ -572,8 +574,11 @@ async def _get_historical_averages(db: AsyncSession, months_back: int = 3) -> Di
     ignored_cats = [x.strip() for x in settings.ignored_categories.split(',')] if settings.ignored_categories else []
     income_cats = [x.strip() for x in settings.income_categories.split(',')] if settings.income_categories else []
 
-    # Fetch transactions for the period
-    cutoff_date = date.today() - timedelta(days=months_back * 30)
+    # Exclude current month (incomplete data) - use end of previous month
+    today = date.today()
+    end_of_prev_month = today.replace(day=1) - timedelta(days=1)
+    cutoff_date = end_of_prev_month - timedelta(days=months_back * 30)
+
     stmt = (
         select(
             models.Transaction.amount,
@@ -583,6 +588,7 @@ async def _get_historical_averages(db: AsyncSession, months_back: int = 3) -> Di
         )
         .join(models.Category, models.Transaction.category_id == models.Category.id)
         .where(models.Transaction.txn_date >= cutoff_date)
+        .where(models.Transaction.txn_date <= end_of_prev_month)
     )
     result = await db.execute(stmt)
     transactions = result.mappings().all()

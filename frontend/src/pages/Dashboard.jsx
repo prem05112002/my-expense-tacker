@@ -4,11 +4,9 @@ import api from '../api/axios';
 import {
     Wallet, TrendingUp, TrendingDown, Settings, Calendar, PiggyBank, ArrowRight, AlertTriangle, RefreshCw
 } from 'lucide-react';
-import { 
-    LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend
-} from 'recharts';
 import { getAmountColor, formatCurrency } from '../utils/formatters';
 import { DashboardSkeleton } from '../components/ui/CardSkeleton';
+import EmbeddedChat from '../components/EmbeddedChat';
 
 const Dashboard = () => {
     const [stats, setStats] = useState(null);
@@ -58,7 +56,6 @@ const Dashboard = () => {
     if (loading) return <DashboardSkeleton />;
     if (!stats) return <div className="p-10 text-white">Failed to load data.</div>;
 
-    const trendData = stats.spending_trend || [];
     const breakdownData = stats.category_breakdown || [];
     const recentTxns = stats.recent_transactions || [];
     
@@ -210,48 +207,15 @@ const Dashboard = () => {
                 </div>
             </div>
             
-            {/* ... Rest of the component (Graph, Categories, etc.) remains same ... */}
-            
-            {/* --- GRAPH & CATEGORIES --- */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 shrink-0">
-                <div className="lg:col-span-2 bg-[#161616] p-6 rounded-2xl border border-white/5 flex flex-col">
-                    <div className="flex justify-between items-center mb-6">
-                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                            <TrendingUp size={18} className="text-blue-400" /> Spending Trend
-                        </h3>
-                        <div className="flex items-center gap-4 text-xs font-bold">
-                            <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-blue-500"></div>This Cycle</div>
-                            <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-slate-500"></div>Last Cycle</div>
-                        </div>
-                    </div>
-                    
-                    <div className="h-[300px] w-full relative">
-                        <div className="absolute inset-0 min-w-0"> 
-                            <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={trendData}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
-                                    <XAxis dataKey="day" stroke="#525252" fontSize={11} tickLine={false} axisLine={false} />
-                                    <YAxis stroke="#525252" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(val) => `₹${val/1000}k`} />
-                                    <Tooltip 
-                                        contentStyle={{ backgroundColor: '#111', border: '1px solid #333' }} 
-                                        labelFormatter={(label, payload) => payload?.[0]?.payload?.date || `Day ${label}`}
-                                        formatter={(val, name) => [
-                                            `₹${formatCurrency(val)}`, 
-                                            name === 'actual' ? 'This Cycle' : name === 'previous' ? 'Last Cycle' : 'Ideal'
-                                        ]}
-                                    />
-                                    <Line type="monotone" dataKey="ideal" stroke="#334155" strokeDasharray="5 5" dot={false} strokeWidth={2} activeDot={false} />
-                                    <Line type="monotone" dataKey="previous" stroke="#64748b" strokeWidth={2} dot={false} strokeOpacity={0.6} activeDot={{ r: 4 }} />
-                                    <Line type="monotone" dataKey="actual" stroke="#3b82f6" strokeWidth={3} dot={false} activeDot={{ r: 6, strokeWidth: 0 }} />
-                                </LineChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </div>
-                </div>
+            {/* --- EMBEDDED CHAT (Financial Assistant) --- */}
+            <EmbeddedChat />
 
-                <div className="bg-[#161616] p-6 rounded-2xl border border-white/5 flex flex-col h-[380px]">
+            {/* --- CATEGORIES & RECENT TRANSACTIONS --- */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 shrink-0">
+                {/* Top Categories */}
+                <div className="bg-[#161616] p-6 rounded-2xl border border-white/5 flex flex-col">
                     <h3 className="text-lg font-bold text-white mb-6">Top Categories</h3>
-                    <div className="space-y-4 overflow-y-auto custom-scrollbar pr-2 flex-1">
+                    <div className="space-y-4 overflow-y-auto custom-scrollbar pr-2 flex-1 max-h-[300px]">
                         {breakdownData.length > 0 ? breakdownData.map((cat, idx) => (
                             <div key={idx} className="group">
                                 <div className="flex justify-between text-xs mb-1">
@@ -265,26 +229,26 @@ const Dashboard = () => {
                         )) : <div className="text-slate-600 text-sm text-center mt-10">No categories yet</div>}
                     </div>
                 </div>
-            </div>
 
-            {/* --- RECENT TRANSACTIONS --- */}
-            <div className="bg-[#161616] p-6 rounded-2xl border border-white/5 shrink-0">
-                <h3 className="text-lg font-bold text-white mb-4">Recent Transactions</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {recentTxns.map((txn) => (
-                        <div key={txn.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5 hover:border-white/10 transition-colors">
-                            <div className="flex items-center gap-3">
-                                <div className="h-10 w-10 rounded-full flex items-center justify-center font-bold text-xs" style={{ backgroundColor: `${txn.category_color}20`, color: txn.category_color }}>
-                                    {txn.merchant_name.charAt(0)}
+                {/* Recent Transactions */}
+                <div className="bg-[#161616] p-6 rounded-2xl border border-white/5 flex flex-col">
+                    <h3 className="text-lg font-bold text-white mb-4">Recent Transactions</h3>
+                    <div className="space-y-3 overflow-y-auto custom-scrollbar pr-2 flex-1 max-h-[300px]">
+                        {recentTxns.map((txn) => (
+                            <div key={txn.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5 hover:border-white/10 transition-colors">
+                                <div className="flex items-center gap-3">
+                                    <div className="h-10 w-10 rounded-full flex items-center justify-center font-bold text-xs" style={{ backgroundColor: `${txn.category_color}20`, color: txn.category_color }}>
+                                        {txn.merchant_name.charAt(0)}
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-bold text-white truncate max-w-[150px]">{txn.merchant_name}</p>
+                                        <p className="text-[10px] text-slate-500">{txn.txn_date}</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="text-sm font-bold text-white truncate max-w-[120px]">{txn.merchant_name}</p>
-                                    <p className="text-[10px] text-slate-500">{txn.txn_date}</p>
-                                </div>
+                                <span className={`text-sm font-bold ${getAmountColor(txn.payment_type)}`}>₹{formatCurrency(txn.amount)}</span>
                             </div>
-                            <span className={`text-sm font-bold ${getAmountColor(txn.payment_type)}`}>₹{formatCurrency(txn.amount)}</span>
-                        </div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
             </div>
         </div>
