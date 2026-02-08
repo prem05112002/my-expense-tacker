@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import date
 from .transactions import TransactionOut
+from .goals import GoalWithProgress
 
 class SpendingTrendItem(BaseModel):
     day: int
@@ -31,3 +32,8 @@ class FinancialHealthStats(BaseModel):
     category_breakdown: List[dict]
     spending_trend: List[SpendingTrendItem]
     view_mode: str
+
+    # Goals and Budget Alert
+    goals: List[GoalWithProgress] = []
+    show_budget_alert: bool = False
+    budget_used_percent: float = 0.0

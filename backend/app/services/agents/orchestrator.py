@@ -22,7 +22,7 @@ from .memory import ConversationSession, get_session_manager
 from .parser import ParserAgent
 from .aggregator import AggregatorAgent
 from .llm import get_rate_limit_status, check_rate_limit_for_conversation
-from .compute import BudgetAgent, TrendsAgent, ForecastAgent, AffordabilityAgent
+from .compute import BudgetAgent, TrendsAgent, ForecastAgent, AffordabilityAgent, GoalsAgent
 
 
 class Orchestrator:
@@ -53,6 +53,7 @@ class Orchestrator:
             TrendsAgent(),
             ForecastAgent(),
             AffordabilityAgent(),
+            GoalsAgent(),
         ]
         for agent in agents:
             self.registry.register(agent)
@@ -168,15 +169,20 @@ class Orchestrator:
                     )
 
             # Step 4: Format response
-            response_text = await self.aggregator.format_response(
+            format_result = await self.aggregator.format_response(
                 user_query=user_query,
                 dag=dag,
                 results=results,
                 trace=trace,
             )
 
+            response_text = format_result["response"]
+            follow_up_question = format_result.get("follow_up_question")
+
             # Update session
             session.add_message("assistant", response_text)
+            if follow_up_question:
+                session.add_message("assistant", follow_up_question)
             trace.finalize(response=response_text, success=True)
 
             return self._make_response(
@@ -184,6 +190,7 @@ class Orchestrator:
                 intent="conversational",
                 requires_llm=True,
                 session=session,
+                follow_up_question=follow_up_question,
             )
 
         except Exception as e:
@@ -382,6 +389,7 @@ class Orchestrator:
         intent: str,
         requires_llm: bool,
         session: ConversationSession,
+        follow_up_question: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a standard response dict.
 
@@ -390,17 +398,21 @@ class Orchestrator:
             intent: Detected intent
             requires_llm: Whether LLM was used
             session: Conversation session
+            follow_up_question: Optional follow-up question (sent as separate message)
 
         Returns:
             Response dict matching ChatResponse schema
         """
-        return {
+        result = {
             "response": response,
             "intent": intent,
             "requires_llm": requires_llm,
             "rate_limit": get_rate_limit_status(),
             "session_id": session.session_id,
         }
+        if follow_up_question:
+            result["follow_up_question"] = follow_up_question
+        return result
 
 
 # Global orchestrator instance

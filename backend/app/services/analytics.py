@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, and_, or_
 from .. import models, schemas
 from .rules import get_or_create_settings
+from .goals import get_all_goals_with_progress
 
 def get_adjusted_payday(year: int, month: int, salary_day: int) -> date:
     """Adjusts the salary day if it falls on a weekend."""
@@ -384,10 +385,17 @@ async def calculate_financial_health(db: AsyncSession, offset: int = 0):
     )
 
     cat_breakdown = [
-        {"name": k, "value": v["value"], "color": v["color"]} 
+        {"name": k, "value": v["value"], "color": v["color"]}
         for k, v in cat_map.items() if v["value"] > 0
     ]
     cat_breakdown.sort(key=lambda x: x["value"], reverse=True)
+
+    # 8. Fetch Goals with Progress
+    goals_with_progress = await get_all_goals_with_progress(db)
+
+    # 9. Budget Alert Calculation (show alert at 80% threshold)
+    budget_used_pct = (total_spend / budget_limit * 100) if budget_limit > 0 else 0.0
+    show_budget_alert = budget_used_pct >= 80
 
     return {
         "cycle_start": start,
@@ -406,5 +414,8 @@ async def calculate_financial_health(db: AsyncSession, offset: int = 0):
         "recent_transactions": recent_txns,
         "category_breakdown": cat_breakdown,
         "spending_trend": trend_graph,
-        "view_mode": "Current" if offset == 0 else f"History (-{offset})"
+        "view_mode": "Current" if offset == 0 else f"History (-{offset})",
+        "goals": goals_with_progress,
+        "show_budget_alert": show_budget_alert,
+        "budget_used_percent": round(budget_used_pct, 1)
     }

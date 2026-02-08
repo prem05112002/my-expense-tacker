@@ -107,6 +107,7 @@ class ChatResponse(BaseModel):
     rate_limit: Dict[str, Any]
     session_id: str
     parsed_params: Optional[ChatQueryParams] = None  # The parsed params used for this response
+    follow_up_question: Optional[str] = None  # Separate follow-up question (e.g., goal suggestion)
 
 
 # ============================================

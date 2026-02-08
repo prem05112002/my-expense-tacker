@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....schemas.agents.task import Task, TaskResult, TaskType
 from ....schemas.agents.trace import ExecutionTrace, TraceEventType
 from ... import chatbot_compute
+from ...goals import get_all_goals_with_progress
 from ..base import BaseAgent
 from ..chatbot import _get_historical_averages
 
@@ -133,6 +134,37 @@ class ForecastAgent(BaseAgent):
             category_name=params.get("category_name"),
             months_back=params.get("months_back", 3),
         )
+
+        # Check if we should suggest a goal for this category
+        if result_data.get("requested_category") and result_data["requested_category"].get("found"):
+            cat_data = result_data["requested_category"]
+            cat_avg = cat_data.get("avg_monthly", 0)
+            total_avg = result_data.get("avg_monthly_total", 0)
+
+            if total_avg > 0:
+                percentage = (cat_avg / total_avg) * 100
+                result_data["percentage_of_total"] = round(percentage, 1)
+
+                # Suggest goal if category is >15% of spending
+                if percentage > 15:
+                    # Check if goal already exists
+                    existing_goals = await get_all_goals_with_progress(db)
+                    already_has_goal = any(
+                        g.category_name and g.category_name.lower() == cat_data["name"].lower()
+                        for g in existing_goals
+                    )
+
+                    if already_has_goal:
+                        existing_goal = next(
+                            (g for g in existing_goals if g.category_name and g.category_name.lower() == cat_data["name"].lower()),
+                            None
+                        )
+                        result_data["already_has_goal"] = True
+                        result_data["existing_goal_cap"] = existing_goal.cap_amount if existing_goal else 0
+                        result_data["existing_goal_progress"] = existing_goal.progress_percent if existing_goal else 0
+                    else:
+                        result_data["suggest_goal"] = True
+                        result_data["suggested_cap"] = round(cat_avg * 0.9, -2)  # 10% reduction
 
         # Store for chained operations
         context["avg_spending"] = result_data

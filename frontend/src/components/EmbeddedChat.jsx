@@ -83,7 +83,7 @@ const EmbeddedChat = ({ className = '' }) => {
             }
 
             const response = await api.post('/chatbot/ask', payload);
-            const { response: botResponse, intent, rate_limit, session_id: returnedSessionId } = response.data;
+            const { response: botResponse, intent, rate_limit, session_id: returnedSessionId, follow_up_question } = response.data;
 
             // Store session ID for future requests
             if (returnedSessionId) {
@@ -95,6 +95,7 @@ const EmbeddedChat = ({ className = '' }) => {
                 }
             }
 
+            // Add main response
             setMessages((prev) => [
                 ...prev,
                 {
@@ -104,6 +105,22 @@ const EmbeddedChat = ({ className = '' }) => {
                     intent,
                 },
             ]);
+
+            // Add follow-up question as a separate message if present
+            if (follow_up_question) {
+                // Small delay to make the follow-up feel more natural
+                setTimeout(() => {
+                    setMessages((prev) => [
+                        ...prev,
+                        {
+                            id: crypto.randomUUID(),
+                            type: 'bot',
+                            text: follow_up_question,
+                            isFollowUp: true,
+                        },
+                    ]);
+                }, 500);
+            }
 
             if (rate_limit) {
                 setRateLimit(rate_limit);
@@ -183,7 +200,9 @@ const EmbeddedChat = ({ className = '' }) => {
                                     ? 'bg-purple-600 text-white'
                                     : msg.isError
                                         ? 'bg-red-900/50 text-red-200 border border-red-700'
-                                        : 'bg-slate-800 text-slate-200'
+                                        : msg.isFollowUp
+                                            ? 'bg-teal-900/30 text-teal-200 border border-teal-700/50'
+                                            : 'bg-slate-800 text-slate-200'
                                 }`}
                         >
                             {msg.type === 'bot' ? parseMarkdown(msg.text) : msg.text}
