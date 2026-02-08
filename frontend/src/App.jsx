@@ -7,7 +7,6 @@ import Transactions from './pages/Transactions';
 import Duplicates from './pages/Duplicates';
 import NeedsReview from './pages/NeedsReview';
 import Profile from './pages/Profile';
-import ChatBot from './components/ChatBot';
 
 function App() {
   return (
@@ -22,7 +21,6 @@ function App() {
             <Route path="/needs-review" element={<NeedsReview />} />
           </Routes>
         </Layout>
-        <ChatBot />
       </Router>
     </ToastProvider>
   );

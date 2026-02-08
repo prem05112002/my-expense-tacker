@@ -130,7 +130,7 @@ async def call_gemini_api(
 
     generation_config = {
         "temperature": temperature,
-        "maxOutputTokens": 2048,
+        "maxOutputTokens": 4096,
     }
 
     # Enable JSON mode if schema is provided

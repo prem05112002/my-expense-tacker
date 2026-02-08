@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -229,6 +230,7 @@ IMPORTANT:
 - Never set requires_clarification=true if the query can be answered with the available data
 - For product prices, set monthly_cost=0 and the system will look up the price
 - Match category names to the user's actual categories (e.g., "fuel" should match "Fuel" if it exists)
+- Keep operation descriptions SHORT (under 50 chars) - just describe what it does, not why
 
 OUTPUT FORMAT (respond with ONLY this JSON, no other text):
 {{
@@ -248,15 +250,19 @@ EXAMPLES:
 
 Query: "How much did I spend on fuel in the past 3 months?"
 Response:
-{{"query_summary": "Fuel spending over 3 months", "operations": [{{"type": "time_range_spend", "params": {{"category_name": "Fuel", "months_back": 3}}, "description": "Calculate fuel spending for past 3 months"}}], "requires_clarification": false, "clarification_question": null}}
+{{"query_summary": "Fuel spending over 3 months", "operations": [{{"type": "time_range_spend", "params": {{"category_name": "Fuel", "months_back": 3}}, "description": "Get 3-month fuel spend"}}], "requires_clarification": false, "clarification_question": null}}
 
 Query: "What about last month?"
 Response (assuming previous query was about food):
-{{"query_summary": "Food spending last month", "operations": [{{"type": "time_range_spend", "params": {{"category_name": "Food", "relative": "last_month"}}, "description": "Food spending for last month"}}], "requires_clarification": false, "clarification_question": null}}
+{{"query_summary": "Food spending last month", "operations": [{{"type": "time_range_spend", "params": {{"category_name": "Food", "relative": "last_month"}}, "description": "Get last month food spend"}}], "requires_clarification": false, "clarification_question": null}}
 
 Query: "What's my budget?"
 Response:
-{{"query_summary": "Check budget status", "operations": [{{"type": "budget_status", "params": {{}}, "description": "Get current budget status"}}], "requires_clarification": false, "clarification_question": null}}
+{{"query_summary": "Check budget status", "operations": [{{"type": "budget_status", "params": {{}}, "description": "Get budget status"}}], "requires_clarification": false, "clarification_question": null}}
+
+Query: "What is my current savings rate?"
+Response:
+{{"query_summary": "Current savings rate", "operations": [{{"type": "budget_status", "params": {{}}, "description": "Get budget and surplus"}}], "requires_clarification": false, "clarification_question": null}}
 
 User query: "{user_query}" """
 
@@ -272,7 +278,16 @@ User query: "{user_query}" """
                 )
 
             logger.debug(f"[ParserAgent] Parsing JSON: {cleaned[:300]}")
-            data = json.loads(cleaned)
+
+            # Try to parse JSON, with recovery for truncated responses
+            try:
+                data = json.loads(cleaned)
+            except json.JSONDecodeError as e:
+                # Attempt to recover truncated JSON
+                logger.warning(f"[ParserAgent] JSON parse failed, attempting recovery: {e}")
+                data = self._recover_truncated_json(cleaned)
+                if data is None:
+                    raise e
             logger.debug(f"[ParserAgent] Parsed data: {data}")
 
             # Create tasks from operations
@@ -321,3 +336,44 @@ User query: "{user_query}" """
         except (KeyError, TypeError) as e:
             logger.error(f"[ParserAgent] Error parsing response: {e}")
             return None
+
+    def _recover_truncated_json(self, json_str: str) -> Optional[Dict[str, Any]]:
+        """Attempt to recover a truncated JSON response.
+
+        This handles cases where the LLM response is cut off mid-way.
+        We try to extract at least one complete operation.
+        """
+        # Check if we have at least one complete operation
+        # Look for a pattern like {"type": "...", "params": {...}, "description": "..."}
+        op_pattern = r'\{\s*"type"\s*:\s*"([^"]+)"\s*,\s*"params"\s*:\s*(\{[^}]*\})\s*(?:,\s*"description"\s*:\s*"[^"]*")?'
+        operations = []
+
+        for match in re.finditer(op_pattern, json_str):
+            try:
+                op_type = match.group(1)
+                params_str = match.group(2)
+                params = json.loads(params_str)
+                operations.append({
+                    "type": op_type,
+                    "params": params,
+                    "description": f"Recovered: {op_type}"
+                })
+            except (json.JSONDecodeError, IndexError):
+                continue
+
+        if not operations:
+            logger.warning("[ParserAgent] Could not recover any operations from truncated JSON")
+            return None
+
+        # Extract query_summary if present
+        summary_match = re.search(r'"query_summary"\s*:\s*"([^"]*)"', json_str)
+        query_summary = summary_match.group(1) if summary_match else "Recovered query"
+
+        logger.info(f"[ParserAgent] Recovered {len(operations)} operations from truncated JSON")
+
+        return {
+            "query_summary": query_summary,
+            "operations": operations,
+            "requires_clarification": False,
+            "clarification_question": None
+        }

@@ -74,11 +74,19 @@ def _calculate_category_trends(
     ignored_cats: List[str],
     income_cats: List[str]
 ) -> List[trend_schemas.CategoryTrend]:
-    """Calculate trend direction for each category."""
+    """Calculate trend direction for each category.
+
+    Compares the most recent complete month with the previous complete month
+    to avoid skewed comparisons with incomplete current month data.
+    """
     today = date.today()
-    current_month = _get_month_key(today)
+    # Use the two most recent COMPLETE months for fair comparison
+    # prev_month = the month before current (most recent complete)
+    # prev_prev_month = the month before that
     prev_month_date = today.replace(day=1) - timedelta(days=1)
     prev_month = _get_month_key(prev_month_date)
+    prev_prev_month_date = prev_month_date.replace(day=1) - timedelta(days=1)
+    prev_prev_month = _get_month_key(prev_prev_month_date)
 
     category_monthly: Dict[str, Dict[str, float]] = defaultdict(
         lambda: defaultdict(float)
@@ -98,8 +106,9 @@ def _calculate_category_trends(
 
     result = []
     for cat_name, monthly in category_monthly.items():
-        curr = monthly.get(current_month, 0.0)
-        prev = monthly.get(prev_month, 0.0)
+        # Compare the two most recent complete months
+        curr = monthly.get(prev_month, 0.0)  # Most recent complete month
+        prev = monthly.get(prev_prev_month, 0.0)  # Month before that
 
         if prev > 0:
             change_pct = ((curr - prev) / prev) * 100
@@ -314,7 +323,10 @@ async def get_category_trend_detail(
     db: AsyncSession,
     category_name: str
 ) -> trend_schemas.CategoryTrendDetail:
-    """Get detailed trend for a specific category."""
+    """Get detailed trend for a specific category.
+
+    Average and trend calculations exclude the current incomplete month.
+    """
     settings = await get_or_create_settings(db)
     ignored = [x.strip() for x in settings.ignored_categories.split(',')] if settings.ignored_categories else []
     income_cats = [x.strip() for x in settings.income_categories.split(',')] if settings.income_categories else []
@@ -344,6 +356,10 @@ async def get_category_trend_detail(
 
     color = cat_txns[0].category_color or "#cbd5e1"
 
+    # Current month key for exclusion from averages
+    today = date.today()
+    current_month = _get_month_key(today)
+
     # Monthly breakdown
     monthly_data: Dict[str, Dict[str, Any]] = defaultdict(
         lambda: {"total": 0.0, "count": 0}
@@ -363,16 +379,18 @@ async def get_category_trend_detail(
         for k, v in sorted(monthly_data.items())
     ]
 
-    totals = [m.total for m in monthly_list]
+    # For averages and totals, exclude current incomplete month
+    complete_months = [m for m in monthly_list if m.month != current_month]
+    totals = [m.total for m in complete_months]
     total_spend = sum(totals)
     avg_monthly = total_spend / len(totals) if totals else 0
 
-    peak_month = max(monthly_list, key=lambda x: x.total).month if monthly_list else "N/A"
+    peak_month = max(complete_months, key=lambda x: x.total).month if complete_months else "N/A"
 
-    # Trend calculation
-    if len(monthly_list) >= 2:
-        recent = monthly_list[-1].total
-        prev = monthly_list[-2].total
+    # Trend calculation: compare two most recent COMPLETE months
+    if len(complete_months) >= 2:
+        recent = complete_months[-1].total
+        prev = complete_months[-2].total
         if prev > 0:
             change = ((recent - prev) / prev) * 100
         else:
@@ -404,8 +422,14 @@ async def _calculate_avg_monthly_salary(
     income_cats: List[str],
     months_back: int = 12
 ) -> float:
-    """Calculate average monthly salary from income transactions."""
-    cutoff_date = date.today() - timedelta(days=months_back * 30)
+    """Calculate average monthly salary from income transactions.
+
+    Excludes current month as it may be incomplete.
+    """
+    today = date.today()
+    # Use end of previous month to avoid incomplete current month
+    end_of_prev_month = today.replace(day=1) - timedelta(days=1)
+    cutoff_date = end_of_prev_month - timedelta(days=months_back * 30)
 
     stmt = (
         select(
@@ -415,6 +439,7 @@ async def _calculate_avg_monthly_salary(
         .join(models.Category, models.Transaction.category_id == models.Category.id)
         .where(
             models.Transaction.txn_date >= cutoff_date,
+            models.Transaction.txn_date <= end_of_prev_month,
             func.upper(models.Transaction.payment_type) == 'CREDIT',
             models.Category.name.in_(income_cats)
         )
@@ -439,14 +464,22 @@ async def simulate_affordability(
     db: AsyncSession,
     simulation: trend_schemas.AffordabilitySimulation
 ) -> trend_schemas.AffordabilityResult:
-    """Simulate budget impact of a new recurring expense."""
+    """Simulate budget impact of a new recurring expense.
+
+    Uses only complete months for average calculation to avoid skewed results
+    from incomplete current month data.
+    """
     settings = await get_or_create_settings(db)
     ignored = [x.strip() for x in settings.ignored_categories.split(',')] if settings.ignored_categories else []
     income_cats = [x.strip() for x in settings.income_categories.split(',')] if settings.income_categories else []
 
     transactions = await _fetch_all_transactions(db, months_back=3)
 
-    # Calculate average monthly spend
+    # Exclude current month (incomplete data)
+    today = date.today()
+    current_month = _get_month_key(today)
+
+    # Calculate average monthly spend from complete months only
     monthly_totals: Dict[str, float] = defaultdict(float)
 
     for txn in transactions:
@@ -457,6 +490,9 @@ async def simulate_affordability(
             continue
 
         month_key = _get_month_key(txn.txn_date)
+        # Skip current incomplete month
+        if month_key == current_month:
+            continue
         monthly_totals[month_key] += float(txn.amount)
 
     totals = list(monthly_totals.values())

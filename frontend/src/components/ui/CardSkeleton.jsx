@@ -32,7 +32,39 @@ export const WideCardSkeleton = () => (
     </div>
 );
 
-// Chart card skeleton
+// Chat skeleton (replaces ChartCardSkeleton for embedded chat)
+export const ChatSkeleton = () => (
+    <div className="bg-[#161616] rounded-2xl border border-white/5 flex flex-col overflow-hidden">
+        {/* Header skeleton */}
+        <div className="bg-purple-600/50 px-4 py-3">
+            <SkeletonLine width="w-36" height="h-5" />
+            <SkeletonLine width="w-24" height="h-3" className="mt-1" />
+        </div>
+        {/* Messages area */}
+        <div className="p-4 space-y-4" style={{ minHeight: '300px' }}>
+            <SkeletonRect width="w-3/4" height="h-16" />
+            <div className="flex justify-end">
+                <SkeletonRect width="w-1/2" height="h-10" />
+            </div>
+            <SkeletonRect width="w-2/3" height="h-12" />
+        </div>
+        {/* Suggestions */}
+        <div className="px-4 pb-2 flex gap-2">
+            <SkeletonLine width="w-32" height="h-6" />
+            <SkeletonLine width="w-36" height="h-6" />
+            <SkeletonLine width="w-28" height="h-6" />
+        </div>
+        {/* Input */}
+        <div className="border-t border-slate-700 p-3">
+            <div className="flex gap-2">
+                <SkeletonRect height="h-10" className="flex-1" />
+                <SkeletonRect width="w-12" height="h-10" />
+            </div>
+        </div>
+    </div>
+);
+
+// Chart card skeleton (kept for backwards compatibility)
 export const ChartCardSkeleton = () => (
     <div className="lg:col-span-2 bg-[#161616] p-6 rounded-2xl border border-white/5">
         <div className="flex justify-between items-center mb-6">
@@ -48,7 +80,7 @@ export const ChartCardSkeleton = () => (
 
 // Category list skeleton
 export const CategoryListSkeleton = () => (
-    <div className="bg-[#161616] p-6 rounded-2xl border border-white/5 h-[380px]">
+    <div className="bg-[#161616] p-6 rounded-2xl border border-white/5">
         <SkeletonLine width="w-32" height="h-5" />
         <div className="space-y-4 mt-6">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -58,6 +90,27 @@ export const CategoryListSkeleton = () => (
                         <SkeletonLine width="w-16" height="h-3" />
                     </div>
                     <SkeletonRect height="h-2" rounded="rounded-full" />
+                </div>
+            ))}
+        </div>
+    </div>
+);
+
+// Transaction list skeleton (for recent transactions)
+export const TransactionListSkeleton = () => (
+    <div className="bg-[#161616] p-6 rounded-2xl border border-white/5">
+        <SkeletonLine width="w-40" height="h-5" />
+        <div className="space-y-3 mt-4">
+            {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
+                    <div className="flex items-center gap-3">
+                        <SkeletonCircle size="w-10 h-10" />
+                        <div>
+                            <SkeletonLine width="w-24" height="h-4" />
+                            <SkeletonLine width="w-16" height="h-3" className="mt-1" />
+                        </div>
+                    </div>
+                    <SkeletonLine width="w-16" height="h-4" />
                 </div>
             ))}
         </div>
@@ -199,29 +252,13 @@ export const DashboardSkeleton = () => (
             <WideCardSkeleton />
         </div>
 
-        {/* Graph & Categories */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <ChartCardSkeleton />
-            <CategoryListSkeleton />
-        </div>
+        {/* Embedded Chat */}
+        <ChatSkeleton />
 
-        {/* Recent transactions */}
-        <div className="bg-[#161616] p-6 rounded-2xl border border-white/5">
-            <SkeletonLine width="w-40" height="h-5" />
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
-                {Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
-                        <div className="flex items-center gap-3">
-                            <SkeletonCircle size="w-10 h-10" />
-                            <div>
-                                <SkeletonLine width="w-24" height="h-4" />
-                                <SkeletonLine width="w-16" height="h-3" className="mt-1" />
-                            </div>
-                        </div>
-                        <SkeletonLine width="w-16" height="h-4" />
-                    </div>
-                ))}
-            </div>
+        {/* Categories & Transactions side by side */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <CategoryListSkeleton />
+            <TransactionListSkeleton />
         </div>
     </div>
 );
@@ -230,7 +267,9 @@ export default {
     StatCard: StatCardSkeleton,
     WideCard: WideCardSkeleton,
     ChartCard: ChartCardSkeleton,
+    Chat: ChatSkeleton,
     CategoryList: CategoryListSkeleton,
+    TransactionList: TransactionListSkeleton,
     Profile: ProfileSkeleton,
     Inbox: InboxSkeleton,
     Duplicates: DuplicatesSkeleton,

@@ -120,6 +120,7 @@ async def get_avg_spending_by_category(
     db: AsyncSession,
     category_name: Optional[str] = None,
     months_back: int = 3,
+    exclude_current_month: bool = True,
 ) -> Dict[str, Any]:
     """
     Calculate average monthly spending per category.
@@ -128,12 +129,21 @@ async def get_avg_spending_by_category(
         db: Database session
         category_name: Optional specific category to query (fuzzy match)
         months_back: Number of months to average over (default 3)
+        exclude_current_month: If True, excludes current month (incomplete data)
 
     Returns:
         Dict with avg_monthly_total and per-category averages
     """
     settings = await _get_settings_context(db)
-    start_date, end_date = _calculate_date_range(months_back=months_back)
+
+    # Calculate date range, optionally excluding current month
+    today = date.today()
+    if exclude_current_month:
+        # Use end of previous month to avoid incomplete current month data
+        end_date = today.replace(day=1) - timedelta(days=1)
+        start_date = end_date - timedelta(days=months_back * 30)
+    else:
+        start_date, end_date = _calculate_date_range(months_back=months_back)
 
     transactions = await _fetch_transactions_for_period(db, start_date, end_date)
 
@@ -202,13 +212,23 @@ async def get_avg_transaction_amount(
     merchant_pattern: Optional[str] = None,
     payment_type: Optional[str] = None,
     months_back: int = 3,
+    exclude_current_month: bool = True,
 ) -> Dict[str, Any]:
     """
     Calculate average transaction amount with optional filters.
 
+    Args:
+        exclude_current_month: If True, excludes current month (incomplete data)
+
     Returns avg, min, max, count of matching transactions.
     """
-    start_date, end_date = _calculate_date_range(months_back=months_back)
+    today = date.today()
+    if exclude_current_month:
+        # Use end of previous month to avoid incomplete current month data
+        end_date = today.replace(day=1) - timedelta(days=1)
+        start_date = end_date - timedelta(days=months_back * 30)
+    else:
+        start_date, end_date = _calculate_date_range(months_back=months_back)
 
     transactions = await _fetch_transactions_for_period(
         db, start_date, end_date,
