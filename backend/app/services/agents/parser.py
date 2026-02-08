@@ -205,6 +205,11 @@ Available operations:
 10. future_projection (params: months_forward, adjustments) - Project future spending/savings
 11. goal_planning (params: target_amount, target_months, goal_name) - Plan to reach a savings goal
 12. budget_forecast (params: days_forward) - Forecast budget status for end of cycle
+13. suggest_goal (params: category_name) - Check if user should set a spending cap for a category
+    - Suggests a goal if the category represents >15% of total spending
+14. create_goal (params: category_name, cap_amount OR reduction_percent) - Create a spending cap for a category
+    - cap_amount: The specific amount to cap at (e.g., 10000)
+    - reduction_percent: Alternative - reduce current spend by X% (e.g., 10 for 10% reduction)
 
 User's categories: {', '.join(categories) if categories else 'Unknown'}
 
@@ -263,6 +268,18 @@ Response:
 Query: "What is my current savings rate?"
 Response:
 {{"query_summary": "Current savings rate", "operations": [{{"type": "budget_status", "params": {{}}, "description": "Get budget and surplus"}}], "requires_clarification": false, "clarification_question": null}}
+
+Query: "Should I set a budget for food?"
+Response:
+{{"query_summary": "Check if food needs a spending cap", "operations": [{{"type": "suggest_goal", "params": {{"category_name": "Food"}}, "description": "Check if food goal recommended"}}], "requires_clarification": false, "clarification_question": null}}
+
+Query: "yes cap at 10000" (follow-up to food question)
+Response:
+{{"query_summary": "Create food spending cap", "operations": [{{"type": "create_goal", "params": {{"category_name": "Food", "cap_amount": 10000}}, "description": "Set food cap at 10k"}}], "requires_clarification": false, "clarification_question": null}}
+
+Query: "yes reduce by 20%"
+Response:
+{{"query_summary": "Create spending cap with 20% reduction", "operations": [{{"type": "create_goal", "params": {{"category_name": "Food", "reduction_percent": 20}}, "description": "Set food cap at 20% less"}}], "requires_clarification": false, "clarification_question": null}}
 
 User query: "{user_query}" """
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import {
@@ -7,6 +7,9 @@ import {
 import { getAmountColor, formatCurrency } from '../utils/formatters';
 import { DashboardSkeleton } from '../components/ui/CardSkeleton';
 import EmbeddedChat from '../components/EmbeddedChat';
+import CategoryPieChart from '../components/ui/CategoryPieChart';
+import GoalsCard from '../components/ui/GoalsCard';
+import { useToast } from '../contexts/ToastContext';
 
 const Dashboard = () => {
     const [stats, setStats] = useState(null);
@@ -14,6 +17,8 @@ const Dashboard = () => {
     const [cycleOffset, setCycleOffset] = useState(0);
     const [syncing, setSyncing] = useState(false);
     const [syncResult, setSyncResult] = useState(null);
+    const budgetAlertShown = useRef(false);
+    const toast = useToast();
 
     const handleSync = async () => {
         if (syncing) return;
@@ -52,6 +57,14 @@ const Dashboard = () => {
     useEffect(() => {
         fetchStats();
     }, [cycleOffset]);
+
+    // Budget alert toast (show once per session when >= 80%)
+    useEffect(() => {
+        if (stats && stats.show_budget_alert && !budgetAlertShown.current && cycleOffset === 0) {
+            toast.warning(`Budget alert: You've used ${stats.budget_used_percent}% of your budget!`);
+            budgetAlertShown.current = true;
+        }
+    }, [stats, cycleOffset, toast]);
 
     if (loading) return <DashboardSkeleton />;
     if (!stats) return <div className="p-10 text-white">Failed to load data.</div>;
@@ -175,36 +188,37 @@ const Dashboard = () => {
                 </div>
 
                 {/* 3. Burn Rate / Cycle Status */}
-                <div className="md:col-span-2 bg-[#161616] p-6 rounded-2xl border border-white/5 flex flex-col justify-center">
-                    <div className="flex justify-between items-center mb-4">
+                <div className="bg-[#161616] p-6 rounded-2xl border border-white/5 flex flex-col justify-center">
+                    <div className="flex justify-between items-center mb-3">
                         <div className="flex items-center gap-2">
                             <p className="text-slate-400 text-xs font-bold uppercase tracking-wider">
-                                {isPastCycle ? "Final Cycle Status" : "Burn Rate"}
+                                {isPastCycle ? "Status" : "Burn Rate"}
                             </p>
-                            {/* ✅ Updated Status Pill */}
                             <span className={`text-xs font-bold px-2 py-0.5 rounded ${burnStatusColor}`}>
                                 {burnStatusText}
                             </span>
                         </div>
-                        <div className="text-xs text-slate-500">Day {stats.days_passed} of {stats.days_in_cycle}</div>
                     </div>
 
-                    <div className="relative h-6 bg-slate-800 rounded-full overflow-hidden mb-2">
-                         <div 
+                    <div className="relative h-4 bg-slate-800 rounded-full overflow-hidden mb-2">
+                        <div
                             className="absolute top-0 left-0 h-full bg-slate-600/30 border-r-2 border-slate-500/50"
                             style={{ width: `${timePassedPercent}%` }}
                         />
-                        <div 
+                        <div
                             className={`absolute top-0 left-0 h-full transition-all duration-1000 ${budgetUsedPercent >= 100 || (stats.total_budget === 0 && stats.total_spend > 0) ? 'bg-red-500' : 'bg-emerald-500'}`}
                             style={{ width: `${budgetUsedPercent}%` }}
                         />
                     </div>
-                    
+
                     <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-slate-500">
                         <span>Used: {budgetUsedPercent.toFixed(0)}%</span>
-                        <span>Time: {timePassedPercent.toFixed(0)}%</span>
+                        <span>Day {stats.days_passed}/{stats.days_in_cycle}</span>
                     </div>
                 </div>
+
+                {/* 4. Little Goals */}
+                <GoalsCard goals={stats.goals || []} />
             </div>
             
             {/* --- EMBEDDED CHAT (Financial Assistant) --- */}
@@ -212,21 +226,11 @@ const Dashboard = () => {
 
             {/* --- CATEGORIES & RECENT TRANSACTIONS --- */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 shrink-0">
-                {/* Top Categories */}
+                {/* Category Breakdown Pie Chart */}
                 <div className="bg-[#161616] p-6 rounded-2xl border border-white/5 flex flex-col">
-                    <h3 className="text-lg font-bold text-white mb-6">Top Categories</h3>
-                    <div className="space-y-4 overflow-y-auto custom-scrollbar pr-2 flex-1 max-h-[300px]">
-                        {breakdownData.length > 0 ? breakdownData.map((cat, idx) => (
-                            <div key={idx} className="group">
-                                <div className="flex justify-between text-xs mb-1">
-                                    <span className="text-slate-300 font-medium">{cat.name}</span>
-                                    <span className="text-white font-bold">₹{formatCurrency(cat.value)}</span>
-                                </div>
-                                <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
-                                    <div className="h-full rounded-full" style={{ width: `${(cat.value / stats.total_spend) * 100}%`, backgroundColor: cat.color || '#94a3b8' }} />
-                                </div>
-                            </div>
-                        )) : <div className="text-slate-600 text-sm text-center mt-10">No categories yet</div>}
+                    <h3 className="text-lg font-bold text-white mb-4">Spending by Category</h3>
+                    <div className="flex-1 min-h-[280px]">
+                        <CategoryPieChart data={breakdownData} totalSpend={stats.total_spend} />
                     </div>
                 </div>
 

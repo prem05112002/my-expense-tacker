@@ -31,3 +31,10 @@ from .smart_search import (
     SmartSearchRequest,
     SmartSearchResponse
 )
+from .goals import (
+    GoalBase,
+    GoalCreate,
+    GoalUpdate,
+    GoalOut,
+    GoalWithProgress
+)

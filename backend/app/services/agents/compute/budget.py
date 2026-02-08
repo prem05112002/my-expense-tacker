@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....schemas.agents.task import Task, TaskResult, TaskType
 from ....schemas.agents.trace import ExecutionTrace, TraceEventType
 from ...analytics import calculate_financial_health
+from ...goals import get_all_goals_with_progress
 from ... import chatbot_compute
 from ..base import BaseAgent
 
@@ -139,11 +140,33 @@ class BudgetAgent(BaseAgent):
 
         if matched:
             total_spend = health["total_spend"]
+            percentage = (matched["value"] / total_spend * 100) if total_spend > 0 else 0
             data = {
                 "category": matched["name"],
                 "amount": matched["value"],
-                "percentage": (matched["value"] / total_spend * 100) if total_spend > 0 else 0,
+                "percentage": percentage,
             }
+
+            # Check if we should suggest a goal (>15% of spending)
+            if percentage > 15:
+                # Check if goal already exists
+                existing_goals = await get_all_goals_with_progress(db)
+                already_has_goal = any(
+                    g.category_name and g.category_name.lower() == matched["name"].lower()
+                    for g in existing_goals
+                )
+
+                if already_has_goal:
+                    existing_goal = next(
+                        (g for g in existing_goals if g.category_name and g.category_name.lower() == matched["name"].lower()),
+                        None
+                    )
+                    data["already_has_goal"] = True
+                    data["existing_goal_cap"] = existing_goal.cap_amount if existing_goal else 0
+                    data["existing_goal_progress"] = existing_goal.progress_percent if existing_goal else 0
+                else:
+                    data["suggest_goal"] = True
+                    data["suggested_cap"] = round(matched["value"] * 0.9, -2)  # 10% reduction
         else:
             data = {
                 "category": category_name,

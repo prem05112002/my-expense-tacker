@@ -42,7 +42,7 @@ class AggregatorAgent(BaseAgent):
         dag: TaskDAG,
         results: List[TaskResult],
         trace: ExecutionTrace,
-    ) -> str:
+    ) -> Dict[str, Any]:
         """Format task results into a natural language response.
 
         Args:
@@ -52,7 +52,7 @@ class AggregatorAgent(BaseAgent):
             trace: Execution trace for logging
 
         Returns:
-            Natural language response string
+            Dict with 'response' (main answer) and optional 'follow_up_question'
         """
         start_time = time.time()
 
@@ -75,6 +75,9 @@ class AggregatorAgent(BaseAgent):
 
         key_facts_str = "\n".join(f"  • {f}" for f in key_facts) if key_facts else "None"
 
+        # Extract follow-up question from results (will be sent as separate message)
+        follow_up_question = self._extract_follow_up_question(results)
+
         prompt = f"""User asked: "{user_query}"
 
 Query analysis: {dag.query_summary}
@@ -85,13 +88,15 @@ KEY FACTS (use these numbers in your response):
 Full computed results:
 {chr(10).join(results_summary)}
 
-Write a natural, conversational response (3-5 sentences) that directly answers the user's question.
+Write a natural, conversational response (2-4 sentences) that directly answers the user's question.
 IMPORTANT:
 - Lead with the answer (yes/no for affordability questions)
 - Include specific numbers with ₹ symbol
 - Explain the calculation briefly (e.g., "By reducing food by ₹10k/month, you'll save ₹X over Y months")
 - If affordable, confirm it confidently. If not, suggest alternatives.
-- Write in flowing prose, not bullet points"""
+- Write in flowing prose, not bullet points
+- DO NOT include any follow-up questions - just answer the user's question
+- If user already has a goal for the category, mention it briefly"""
 
         llm_start = time.time()
         response = await call_gemini_api(
@@ -127,7 +132,10 @@ IMPORTANT:
                 duration_ms=duration_ms,
             )
 
-        return response
+        return {
+            "response": response,
+            "follow_up_question": follow_up_question,
+        }
 
     def _extract_key_facts(self, result: TaskResult) -> List[str]:
         """Extract key facts from a task result for the LLM prompt."""
@@ -142,6 +150,13 @@ IMPORTANT:
             cat = d.get('category', 'Unknown')
             amt = d.get('amount', 0)
             facts.append(f"Spending on {cat}: ₹{amt:,.0f}")
+            if d.get('percentage'):
+                facts.append(f"This is {d['percentage']:.1f}% of total spending")
+            # Goal suggestion
+            if d.get('already_has_goal'):
+                facts.append(f"User already has a spending cap of ₹{d.get('existing_goal_cap', 0):,.0f} for this category")
+            elif d.get('suggest_goal'):
+                facts.append(f"IMPORTANT: {cat} is a significant expense - suggest setting a budget cap")
 
         elif result.task_type == TaskType.CUSTOM_SCENARIO:
             facts.append(f"With the spending adjustments, monthly surplus increases by ₹{d.get('additional_monthly_savings', 0):,.0f}")
@@ -167,7 +182,15 @@ IMPORTANT:
             if d.get('requested_category'):
                 cat_data = d['requested_category']
                 facts.append(f"Average monthly spending on {cat_data['name']}: ₹{cat_data['avg_monthly']:,.0f}")
+                if d.get('percentage_of_total'):
+                    facts.append(f"This is {d['percentage_of_total']:.1f}% of total spending")
             facts.append(f"Overall average monthly: ₹{d.get('avg_monthly_total', 0):,.0f}")
+            # Goal suggestion
+            if d.get('already_has_goal'):
+                facts.append(f"User already has a spending cap of ₹{d.get('existing_goal_cap', 0):,.0f} for this category")
+            elif d.get('suggest_goal'):
+                cat_name = d.get('requested_category', {}).get('name', 'this category')
+                facts.append(f"IMPORTANT: {cat_name} is a significant expense - suggest setting a budget cap")
 
         elif result.task_type == TaskType.SPENDING_VELOCITY:
             facts.append(f"Spending change: {d.get('change_percent', 0):+.1f}% ({d.get('status', 'unknown')})")
@@ -203,7 +226,55 @@ IMPORTANT:
                 facts.append(f"Top expense: {top['name']} (₹{top['value']:,.0f})")
             facts.append(f"Burn status: {d.get('burn_status', 'Unknown')}")
 
+        elif result.task_type == TaskType.SUGGEST_GOAL:
+            cat = d.get('category', 'Unknown')
+            if d.get('already_has_goal'):
+                facts.append(f"You already have a goal for {cat}: ₹{d.get('goal_cap', 0):,.0f} cap ({d.get('progress_percent', 0):.0f}% used)")
+            elif d.get('should_suggest'):
+                facts.append(f"{cat} is {d.get('percentage', 0):.1f}% of your spending (₹{d.get('current_spend', 0):,.0f})")
+                facts.append(f"Suggested cap: ₹{d.get('suggested_cap', 0):,.0f}")
+            else:
+                facts.append(f"{cat} spending is within normal range")
+
+        elif result.task_type == TaskType.CREATE_GOAL:
+            facts.append(d.get('message', 'Goal created'))
+            facts.append(f"Current spend: ₹{d.get('current_spend', 0):,.0f}, Cap: ₹{d.get('cap_amount', 0):,.0f}")
+
         return facts
+
+    def _extract_follow_up_question(self, results: List[TaskResult]) -> Optional[str]:
+        """Extract a follow-up question from results if goal suggestion is appropriate."""
+        for r in results:
+            if not r.success:
+                continue
+
+            d = r.data
+
+            # Check for goal suggestion in category_spend or average_spending
+            if r.task_type in (TaskType.CATEGORY_SPEND, TaskType.AVERAGE_SPENDING):
+                if d.get('suggest_goal'):
+                    # Get category name
+                    if r.task_type == TaskType.CATEGORY_SPEND:
+                        cat_name = d.get('category', 'this category')
+                    else:
+                        cat_name = d.get('requested_category', {}).get('name', 'this category')
+
+                    suggested_cap = d.get('suggested_cap', 0)
+                    return (
+                        f"Would you like me to help set a spending cap for {cat_name}? "
+                        f"I can suggest ₹{suggested_cap:,.0f}/month to help you save."
+                    )
+
+            # Check for goal suggestion in suggest_goal task
+            if r.task_type == TaskType.SUGGEST_GOAL:
+                if d.get('should_suggest') and not d.get('already_has_goal'):
+                    cat_name = d.get('category', 'this category')
+                    suggested_cap = d.get('suggested_cap', 0)
+                    return (
+                        f"Would you like me to set a spending cap of ₹{suggested_cap:,.0f}/month for {cat_name}?"
+                    )
+
+        return None
 
     def _build_fallback_response(self, results: List[TaskResult]) -> str:
         """Build a structured fallback response when LLM formatting fails."""
@@ -228,7 +299,15 @@ IMPORTANT:
                 if d.get('not_found'):
                     parts.append(f"No spending found for '{cat}'.")
                 else:
-                    parts.append(f"Spending on {cat}: ₹{amt:,.0f}")
+                    parts.append(f"Spending on {cat}: ₹{amt:,.0f}.")
+                    if d.get('percentage'):
+                        parts.append(f"This makes up {d.get('percentage', 0):.0f}% of your total spending.")
+                    # Note: follow-up question for goal suggestion is sent separately
+                    if d.get('already_has_goal'):
+                        parts.append(
+                            f"You already have a spending cap of ₹{d.get('existing_goal_cap', 0):,.0f} for {cat}, "
+                            f"and you've used {d.get('existing_goal_progress', 0):.0f}% so far."
+                        )
 
             elif r.task_type == TaskType.CUSTOM_SCENARIO:
                 parts.append(
@@ -258,10 +337,19 @@ IMPORTANT:
             elif r.task_type == TaskType.AVERAGE_SPENDING:
                 if d.get('requested_category') and d['requested_category'].get('found'):
                     cat_data = d['requested_category']
+                    cat_name = cat_data['name']
                     parts.append(
-                        f"Your average monthly spending on {cat_data['name']} is "
+                        f"Your average monthly spending on {cat_name} is "
                         f"₹{cat_data['avg_monthly']:,.0f}."
                     )
+                    if d.get('percentage_of_total'):
+                        parts.append(f"This makes up {d.get('percentage_of_total', 0):.0f}% of your total spending.")
+                    # Note: follow-up question for goal suggestion is sent separately
+                    if d.get('already_has_goal'):
+                        parts.append(
+                            f"You already have a spending cap of ₹{d.get('existing_goal_cap', 0):,.0f} for {cat_name}, "
+                            f"and you've used {d.get('existing_goal_progress', 0):.0f}% so far this month."
+                        )
                 else:
                     parts.append(
                         f"Average monthly spending: ₹{d.get('avg_monthly_total', 0):,.0f}."
@@ -303,6 +391,28 @@ IMPORTANT:
 
             elif r.task_type == TaskType.CLARIFY:
                 parts.append(d.get("question", "Could you provide more details?"))
+
+            elif r.task_type == TaskType.SUGGEST_GOAL:
+                cat = d.get('category', 'Unknown')
+                if d.get('already_has_goal'):
+                    parts.append(
+                        f"You already have a spending cap for {cat} at ₹{d.get('goal_cap', 0):,.0f}. "
+                        f"You've used {d.get('progress_percent', 0):.0f}% so far."
+                    )
+                elif d.get('should_suggest'):
+                    parts.append(
+                        f"{cat} makes up {d.get('percentage', 0):.1f}% of your spending "
+                        f"(₹{d.get('current_spend', 0):,.0f}). Would you like me to help set a spending cap? "
+                        f"I suggest ₹{d.get('suggested_cap', 0):,.0f}/month."
+                    )
+                else:
+                    parts.append(f"Your {cat} spending looks reasonable at ₹{d.get('current_spend', 0):,.0f}.")
+
+            elif r.task_type == TaskType.CREATE_GOAL:
+                parts.append(
+                    f"Done! I've set a spending cap of ₹{d.get('cap_amount', 0):,.0f} for {d.get('category', 'this category')}. "
+                    f"You can track your progress on the Dashboard."
+                )
 
         if not parts:
             return "I analyzed your query but couldn't generate a response. Please try rephrasing."

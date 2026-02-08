@@ -37,6 +37,10 @@ class TaskType(str, Enum):
     AVERAGE_SPENDING = "average_spending"
     SPENDING_VELOCITY = "spending_velocity"
 
+    # Goal operations (Little Goals feature)
+    SUGGEST_GOAL = "suggest_goal"
+    CREATE_GOAL = "create_goal"
+
     # Meta operations (orchestration)
     PARSE_QUERY = "parse_query"
     FORMAT_RESPONSE = "format_response"

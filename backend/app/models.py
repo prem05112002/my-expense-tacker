@@ -1,3 +1,4 @@
+from datetime import datetime
 from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, Boolean, DateTime, Text
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -72,6 +73,17 @@ class RecurringExpense(Base):
     amount = Column(Float)
     frequency = Column(String)  # "MONTHLY", "YEARLY", "WEEKLY", "IRREGULAR"
     next_due_date = Column(Date)
-    
+
     # We link it to the specific transaction that triggered it, if needed
     last_transaction_id = Column(Integer, ForeignKey("transactions.id"), nullable=True)
+
+class MonthlyGoal(Base):
+    __tablename__ = "monthly_goals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
+    category = relationship("Category")
+    cap_amount = Column(Float, nullable=False)  # Monthly spending cap
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_via = Column(String, default="manual")  # "manual" or "chatbot"
