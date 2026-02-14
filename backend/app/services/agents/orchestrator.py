@@ -179,6 +179,12 @@ class Orchestrator:
             response_text = format_result["response"]
             follow_up_question = format_result.get("follow_up_question")
 
+            # Check if a goal was created (for frontend refresh)
+            goal_created = any(
+                r.task_type == TaskType.CREATE_GOAL and r.success
+                for r in results
+            )
+
             # Update session
             session.add_message("assistant", response_text)
             if follow_up_question:
@@ -191,6 +197,7 @@ class Orchestrator:
                 requires_llm=True,
                 session=session,
                 follow_up_question=follow_up_question,
+                goal_created=goal_created,
             )
 
         except Exception as e:
@@ -390,6 +397,7 @@ class Orchestrator:
         requires_llm: bool,
         session: ConversationSession,
         follow_up_question: Optional[str] = None,
+        goal_created: bool = False,
     ) -> Dict[str, Any]:
         """Create a standard response dict.
 
@@ -399,6 +407,7 @@ class Orchestrator:
             requires_llm: Whether LLM was used
             session: Conversation session
             follow_up_question: Optional follow-up question (sent as separate message)
+            goal_created: Whether a spending goal was created
 
         Returns:
             Response dict matching ChatResponse schema
@@ -409,6 +418,7 @@ class Orchestrator:
             "requires_llm": requires_llm,
             "rate_limit": get_rate_limit_status(),
             "session_id": session.session_id,
+            "goal_created": goal_created,
         }
         if follow_up_question:
             result["follow_up_question"] = follow_up_question

@@ -16,7 +16,7 @@ const parseMarkdown = (text) => {
     });
 };
 
-const EmbeddedChat = ({ className = '' }) => {
+const EmbeddedChat = ({ className = '', onGoalChange }) => {
     const [messages, setMessages] = useState([
         {
             id: crypto.randomUUID(),
@@ -83,7 +83,12 @@ const EmbeddedChat = ({ className = '' }) => {
             }
 
             const response = await api.post('/chatbot/ask', payload);
-            const { response: botResponse, intent, rate_limit, session_id: returnedSessionId, follow_up_question } = response.data;
+            const { response: botResponse, intent, rate_limit, session_id: returnedSessionId, follow_up_question, goal_created } = response.data;
+
+            // Refresh dashboard goals if a goal was created
+            if (goal_created && onGoalChange) {
+                onGoalChange();
+            }
 
             // Store session ID for future requests
             if (returnedSessionId) {

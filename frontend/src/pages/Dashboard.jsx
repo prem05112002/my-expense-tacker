@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import {
-    Wallet, TrendingUp, TrendingDown, Settings, Calendar, PiggyBank, ArrowRight, AlertTriangle, RefreshCw
+    TrendingUp, TrendingDown, Settings, Calendar, RefreshCw
 } from 'lucide-react';
 import { getAmountColor, formatCurrency } from '../utils/formatters';
 import { DashboardSkeleton } from '../components/ui/CardSkeleton';
@@ -51,6 +51,16 @@ const Dashboard = () => {
             console.error("Error fetching dashboard data", error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    // Refresh stats without showing loading skeleton (preserves chat state)
+    const refreshStats = async () => {
+        try {
+            const res = await api.get(`/dashboard/?offset=${cycleOffset}`);
+            setStats(res.data);
+        } catch (error) {
+            console.error("Error refreshing dashboard data", error);
         }
     };
 
