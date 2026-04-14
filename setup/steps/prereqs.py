@@ -61,8 +61,41 @@ def _check_node() -> dict:
         }
 
 
+def _find_psql_windows() -> str | None:
+    """Search common Windows PostgreSQL installation directories for psql.exe."""
+    import os
+    from pathlib import Path
+
+    program_files_dirs = [
+        os.environ.get("ProgramFiles", r"C:\Program Files"),
+        os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+    ]
+    for base in program_files_dirs:
+        if not base:
+            continue
+        pg_root = Path(base) / "PostgreSQL"
+        if not pg_root.exists():
+            continue
+        # versions are sub-directories like "14", "15", "16", "17", "18" …
+        try:
+            versions = sorted(
+                (d for d in pg_root.iterdir() if d.is_dir()),
+                key=lambda d: int(d.name) if d.name.isdigit() else 0,
+                reverse=True,
+            )
+        except OSError:
+            continue
+        for ver_dir in versions:
+            candidate = ver_dir / "bin" / "psql.exe"
+            if candidate.exists():
+                return str(candidate)
+    return None
+
+
 def _check_postgres() -> dict:
     path = shutil.which("psql") or shutil.which("pg_isready")
+    if not path and sys.platform == "win32":
+        path = _find_psql_windows()
     if not path:
         return {
             "name": "PostgreSQL 14+",
@@ -76,7 +109,7 @@ def _check_postgres() -> dict:
         }
     try:
         result = subprocess.run(
-            ["psql", "--version"], capture_output=True, text=True, timeout=10
+            [path, "--version"], capture_output=True, text=True, timeout=10
         )
         text = result.stdout.strip() or result.stderr.strip()
         match = re.search(r"(\d+)\.(\d+)", text)
