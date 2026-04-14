@@ -59,16 +59,53 @@ expense-tracker/
     └── requirements.txt
 ```
 
-## Prerequisites
+## Quick Start (Recommended)
 
-- **Python 3.10+**
-- **Node.js 18+** and npm
-- **PostgreSQL 14+**
-- **Gmail account** with an [App Password](https://support.google.com/accounts/answer/185833) enabled
-- **Groq API key** — Get one at [console.groq.com](https://console.groq.com)
-- **Google Gemini API key** — Get one at [aistudio.google.com](https://aistudio.google.com/apikey)
+The easiest way to get running is the **Setup Wizard** — a browser-based app that handles everything automatically.
 
-## Setup
+### Prerequisites (install these first)
+
+| Software | Version | Download |
+|----------|---------|----------|
+| Python | 3.10+ | [python.org/downloads](https://www.python.org/downloads/) |
+| Node.js | 18+ LTS | [nodejs.org/en/download](https://nodejs.org/en/download) |
+| PostgreSQL | 14+ | [postgresql.org/download](https://www.postgresql.org/download/) |
+
+### First-Time Setup
+
+**Mac / Linux:**
+```bash
+# Make the launcher executable (one-time)
+chmod +x "Start Setup.command"
+
+# Then double-click "Start Setup.command" in Finder
+# — OR run from terminal:
+python3 setup/setup.py
+```
+
+**Windows:**
+Double-click **`Start Setup.bat`**
+
+The setup wizard will open in your browser and guide you through:
+1. Checking software prerequisites
+2. Setting up the PostgreSQL database
+3. Connecting your Gmail account (via App Password)
+4. Creating the required Gmail labels
+5. Configuring your AI assistant (Gemini or Groq — both free)
+6. Installing all dependencies automatically
+7. Launching the app
+
+### Launching After First Setup
+
+**Mac / Linux:** Double-click **`Start App.command`** (or run `python3 setup/setup.py --launch`)
+
+**Windows:** Double-click **`Start App.bat`**
+
+---
+
+## Manual Setup (Advanced)
+
+If you prefer to set up manually, here are the steps:
 
 ### 1. Clone the repository
 
@@ -79,14 +116,10 @@ cd expense-tracker
 
 ### 2. Database Setup
 
-Create a PostgreSQL database and user:
-
 ```sql
 CREATE USER tracker_user WITH PASSWORD 'your_password';
-CREATE DATABASE expense_tracker_test OWNER tracker_user;
+CREATE DATABASE expense_tracker OWNER tracker_user;
 ```
-
-Alternatively, the ETL pipeline's `database.py` can bootstrap the database and tables automatically on first run (requires PostgreSQL admin credentials in `.env`).
 
 ### 3. Backend
 
@@ -104,11 +137,12 @@ Create `backend/.env`:
 PG_ADMIN_USER=postgres
 PG_ADMIN_PASS=your_admin_password
 PG_HOST=localhost
-DB_NAME=expense_tracker_test
+DB_NAME=expense_tracker
 DB_USER=tracker_user
 DB_PASS=your_password
 
-# LLM
+# LLM (choose one)
+LLM_BACKEND=GEMINI
 GEMINI_API_KEY=your_gemini_api_key
 
 # Email (IMAP)
@@ -145,10 +179,10 @@ IMAP_PASSWORD=your_gmail_app_password
 PG_ADMIN_USER=postgres
 PG_ADMIN_PASS=your_admin_password
 PG_HOST=localhost
-DB_NAME=expense_tracker_test
+DB_NAME=expense_tracker
 DB_USER=tracker_user
 DB_PASS=your_password
-DATABASE_URL=postgresql://tracker_user:your_password@localhost/expense_tracker_test
+DATABASE_URL=postgresql://tracker_user:your_password@localhost/expense_tracker
 ```
 
 Run the pipeline:
@@ -156,8 +190,6 @@ Run the pipeline:
 ```bash
 python main.py
 ```
-
-This connects to Gmail via IMAP, reads emails from the `sync-expense-tracker` folder, extracts transactions, and loads them into PostgreSQL. Processed emails are moved to an `expenses` folder; non-transaction emails go to `non-transaction`.
 
 ### 5. Frontend
 
@@ -173,8 +205,8 @@ The app will be available at **http://localhost:5173**.
 
 1. Enable IMAP in your Gmail settings (Settings > See all settings > Forwarding and POP/IMAP)
 2. Generate an [App Password](https://support.google.com/accounts/answer/185833) (requires 2FA enabled)
-3. Create a Gmail label/folder named `sync-expense-tracker`
-4. Set up a Gmail filter to route bank notification emails to this folder
+3. Create Gmail labels: `sync-expense-tracker`, `expenses`, `non-transaction`
+4. Set up a Gmail filter to route HDFC bank emails to `sync-expense-tracker`
 5. Use the app password in your `.env` files
 
 ## API Endpoints
