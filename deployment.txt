@@ -1,0 +1,3 @@
+NEON_CONN_STR = postgresql://neondb_owner:npg_xYdHl83vZgNb@ep-damp-cloud-aoqyz3dh.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_cmVsZXZhbnQtbWFybW90LTU2LmNsZXJrLmFjY291bnRzLmRldiQ
+CLERK_SECRET_KEY=sk_test_peuRhQSRAVBezq7Qtx6TSEp9ioxnBR0BMk5YU2zQPe

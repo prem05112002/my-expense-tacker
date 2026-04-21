@@ -57,13 +57,16 @@ class UserSettings(Base):
     __tablename__ = "user_settings"
 
     id = Column(Integer, primary_key=True, index=True)
-    salary_day = Column(Integer, default=1) 
+    salary_day = Column(Integer, default=1)
     monthly_budget = Column(Float, default=50000.0)
     budget_type = Column(String, default="FIXED") # FIXED or PERCENTAGE
     budget_value = Column(Float, default=50000.0)
-    ignored_categories = Column(String, default="") 
-    income_categories = Column(String, default="Salary,Income") 
+    ignored_categories = Column(String, default="")
+    income_categories = Column(String, default="Salary,Income")
     view_cycle_offset = Column(Integer, default=0)
+    imap_user = Column(String, nullable=True)
+    imap_pass_enc = Column(Text, nullable=True)
+    imap_configured = Column(Boolean, default=False)
 
 class RecurringExpense(Base):
     __tablename__ = "recurring_expenses"

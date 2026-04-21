@@ -1,7 +1,13 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from ..database import get_db
+from ..database import get_db_for_user
+from ..auth import get_current_user_id
 from ..services import trends as trends_service
+
+
+async def get_db(user_id: str = Depends(get_current_user_id)):
+    async for session in get_db_for_user(user_id):
+        yield session
 from ..schemas import trends as trend_schemas
 
 router = APIRouter(prefix="/trends", tags=["Trends"])

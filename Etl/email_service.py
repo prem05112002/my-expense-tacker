@@ -1,17 +1,19 @@
 import imaplib
 import email
 from email.header import decode_header
-from config import IMAP_SERVER, EMAIL_USER, EMAIL_PASS
+from config import IMAP_SERVER
 
 class EmailService:
-    def __init__(self):
+    def __init__(self, email_user: str, email_pass: str):
+        self.email_user = email_user
+        self.email_pass = email_pass
         self.mail = None
 
     def connect(self):
         """Connects to IMAP Server"""
         try:
             self.mail = imaplib.IMAP4_SSL(IMAP_SERVER)
-            self.mail.login(EMAIL_USER, EMAIL_PASS)
+            self.mail.login(self.email_user, self.email_pass)
             print("✅ Connected to IMAP")
             return True
         except Exception as e:

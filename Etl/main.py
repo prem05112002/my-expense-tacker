@@ -1,5 +1,5 @@
 from datetime import datetime
-from config import SOURCE_FOLDER, DEST_FOLDER, NON_TXN_FOLDER, validate_env
+from config import SOURCE_FOLDER, DEST_FOLDER, NON_TXN_FOLDER, EMAIL_USER, EMAIL_PASS, validate_env
 from database import init_db, save_transaction, save_unmatched, get_db_connection, get_active_rules
 from parsers import extract_metadata, clean_text
 from email_service import EmailService
@@ -32,7 +32,7 @@ def pipeline_job():
         print(f"🧠 Loaded {len(active_rules)} automation rules.")
 
     # 2. Connect to Gmail
-    service = EmailService()
+    service = EmailService(EMAIL_USER, EMAIL_PASS)
     if not service.connect(): return
 
     # 3. Fetch ALL UIDs currently in the Source Folder

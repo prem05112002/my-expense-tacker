@@ -3,8 +3,14 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
-from ..database import get_db
+from ..database import get_db_for_user
+from ..auth import get_current_user_id
 from .. import services
+
+
+async def get_db(user_id: str = Depends(get_current_user_id)):
+    async for session in get_db_for_user(user_id):
+        yield session
 from ..schemas import subscription as sub_schemas
 
 router = APIRouter(prefix="/subscriptions", tags=["Subscriptions"])

@@ -1,7 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from ..database import get_db
+from ..database import get_db_for_user
+from ..auth import get_current_user_id
 from .. import services, schemas
+
+
+async def get_db(user_id: str = Depends(get_current_user_id)):
+    async for session in get_db_for_user(user_id):
+        yield session
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 

@@ -1,11 +1,11 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import text
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Use 'postgresql+asyncpg' driver
 DB_USER = os.getenv("DB_USER")
 DB_PASS = os.getenv("DB_PASS")
 DB_HOST = os.getenv("PG_HOST")
@@ -13,10 +13,8 @@ DB_NAME = os.getenv("DB_NAME")
 
 DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASS}@{DB_HOST}/{DB_NAME}"
 
-# Create Async Engine
 engine = create_async_engine(DATABASE_URL, echo=False, future=True)
 
-# Create Async Session Factory
 AsyncSessionLocal = sessionmaker(
     bind=engine,
     class_=AsyncSession,
@@ -26,12 +24,49 @@ AsyncSessionLocal = sessionmaker(
 
 Base = declarative_base()
 
-# Dependency for Routes
-async def get_db():
+
+def _safe_schema_name(user_id: str) -> str:
+    """Convert a Clerk user_id like 'user_2abc123' into a valid schema name."""
+    return "u_" + user_id.replace("-", "_")
+
+
+async def get_db_for_user(user_id: str):
+    """
+    Yields an async DB session scoped to the user's Postgres schema.
+    All queries within this session automatically target the right schema.
+    """
+    schema = _safe_schema_name(user_id)
     async with AsyncSessionLocal() as session:
+        await session.execute(text(f"SET search_path = {schema}"))
         yield session
 
-# Helper to create tables (Run this once on startup)
-async def init_db():
+
+async def provision_user_schema(user_id: str):
+    """
+    Called once when a new user signs up. Creates their Postgres schema
+    and initialises all tables + default categories inside it.
+    """
+    schema = _safe_schema_name(user_id)
     async with engine.begin() as conn:
+        await conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema}"))
+        await conn.execute(text(f"SET search_path = {schema}"))
         await conn.run_sync(Base.metadata.create_all)
+
+    async with AsyncSessionLocal() as session:
+        await session.execute(text(f"SET search_path = {schema}"))
+        result = await session.execute(text("SELECT COUNT(*) FROM categories"))
+        count = result.scalar()
+        if count == 0:
+            await session.execute(text("""
+                INSERT INTO categories (name, color, is_income) VALUES
+                    ('Food',          '#f87171', FALSE),
+                    ('Transport',     '#60a5fa', FALSE),
+                    ('Shopping',      '#c084fc', FALSE),
+                    ('Bills',         '#fbbf24', FALSE),
+                    ('Health',        '#4ade80', FALSE),
+                    ('Salary',        '#34d399', TRUE),
+                    ('Income',        '#a3e635', TRUE),
+                    ('Uncategorized', '#cbd5e1', FALSE)
+                ON CONFLICT (name) DO NOTHING
+            """))
+            await session.commit()
