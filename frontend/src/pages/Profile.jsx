@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import { useToast } from '../contexts/ToastContext';
-import { Save, Trash2, Calendar, DollarSign, EyeOff, ChevronDown, Check, X, AlertTriangle } from 'lucide-react';
+import { Save, Trash2, Calendar, DollarSign, EyeOff, ChevronDown, Check, X, AlertTriangle, Mail } from 'lucide-react';
 import { ProfileSkeleton } from '../components/ui/CardSkeleton';
 import useFocusTrap from '../hooks/useFocusTrap';
 
@@ -53,10 +54,12 @@ const MultiSelectDropdown = ({ label, options, selected, onChange, placeholder =
 
 const Profile = () => {
     const toast = useToast();
+    const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     const [rules, setRules] = useState([]);
     const [allCategories, setAllCategories] = useState([]);
     const [deleteTarget, setDeleteTarget] = useState(null);
+    const [gmailStatus, setGmailStatus] = useState({ configured: false, email: null });
 
     const [settings, setSettings] = useState({
         salary_day: 1,
@@ -72,10 +75,11 @@ const Profile = () => {
     useEffect(() => {
         const loadData = async () => {
             try {
-                const [setRes, ruleRes, catRes] = await Promise.all([
+                const [setRes, ruleRes, catRes, gmailRes] = await Promise.all([
                     api.get('/dashboard/settings'),
                     api.get('/rules/'),
-                    api.get('/categories/') 
+                    api.get('/categories/'),
+                    api.get('/gmail-setup/status'),
                 ]);
                 const parseList = (val) => Array.isArray(val) ? val : [];
                 setSettings({
@@ -85,6 +89,7 @@ const Profile = () => {
                 });
                 setRules(ruleRes.data);
                 setAllCategories(catRes.data);
+                setGmailStatus(gmailRes.data);
             } catch (e) { console.error("Failed to load profile", e); } finally { setLoading(false); }
         };
         loadData();
@@ -142,6 +147,41 @@ const Profile = () => {
                         <div className="space-y-6">
                             <MultiSelectDropdown label="Ignore from Spending" placeholder="Select categories..." options={allCategories} selected={settings.ignored_categories} onChange={(newList) => setSettings({...settings, ignored_categories: newList})} />
                             <MultiSelectDropdown label="Salary / Pure Income" placeholder="Select income tags..." options={allCategories} selected={settings.income_categories} onChange={(newList) => setSettings({...settings, income_categories: newList})} />
+                        </div>
+                    </section>
+                    <section className="bg-[#161616] p-6 rounded-2xl border border-white/5">
+                        <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                            <Mail className="text-purple-400"/> Gmail Integration
+                        </h2>
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-xs text-slate-400 font-bold uppercase mb-1">Connection Status</p>
+                                    {gmailStatus.configured ? (
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
+                                            <span className="text-green-400 font-semibold text-sm">Connected</span>
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-2 h-2 rounded-full bg-red-400"></div>
+                                            <span className="text-red-400 font-semibold text-sm">Not Configured</span>
+                                        </div>
+                                    )}
+                                </div>
+                                <button
+                                    onClick={() => navigate('/setup')}
+                                    className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm font-bold rounded-lg transition-colors"
+                                >
+                                    {gmailStatus.configured ? 'Reconfigure' : 'Set Up Gmail'}
+                                </button>
+                            </div>
+                            {gmailStatus.email && (
+                                <div className="bg-[#222] rounded-lg p-3 border border-white/5">
+                                    <p className="text-xs text-slate-400 font-bold uppercase mb-1">Connected Account</p>
+                                    <p className="text-white text-sm font-mono">{gmailStatus.email}</p>
+                                </div>
+                            )}
                         </div>
                     </section>
                     <button onClick={saveSettings} className="w-full py-4 bg-teal-600 text-white font-bold rounded-xl hover:bg-teal-500 transition-colors shadow-lg shadow-teal-500/20">Save System Configuration</button>

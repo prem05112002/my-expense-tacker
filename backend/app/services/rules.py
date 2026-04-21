@@ -67,7 +67,6 @@ async def apply_rules_to_single_transaction(db: AsyncSession, txn: models.Transa
         elif rule.match_type == "EXACT" and rule.pattern.lower() == txn.merchant_name.lower():
             is_match = True
         if is_match:
-            print(f"✨ Auto-Rule Applied: {txn.merchant_name} -> {rule.new_merchant_name}")
             txn.merchant_name = rule.new_merchant_name
             txn.category_id = rule.category_id
             break 

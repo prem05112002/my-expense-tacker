@@ -1,4 +1,3 @@
-import holidays
 from datetime import date, timedelta
 from typing import Any, Dict, List, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,8 +81,6 @@ async def get_secure_cycle_dates(db: AsyncSession, salary_day: int, offset: int,
         # 🚨 Early Salary Detected!
         # If we find a salary on the 24th, and our cycle ends on the 25th,
         # we MUST end our cycle on the 23rd to push that salary to the next cycle.
-        print(f"[CYCLE FIX] Early salary detected on {early_salary_date}. Snapping end date.")
-        
         # Ensure we don't snap if the salary is actually the START of the current cycle (edge case for short cycles)
         if early_salary_date > start_date + timedelta(days=5):
             end_date = early_salary_date - timedelta(days=1)

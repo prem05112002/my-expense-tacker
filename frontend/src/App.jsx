@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { SignedIn, SignedOut, RedirectToSignIn, SignIn, useUser } from '@clerk/clerk-react';
 import { ToastProvider } from './contexts/ToastContext';
 import Layout from './components/Layout';
@@ -11,15 +11,33 @@ import Profile from './pages/Profile';
 import GmailSetup from './pages/GmailSetup';
 import { useApi } from './api/axios';
 
-function ProvisionOnLogin() {
+function AppInitializer() {
   const { isSignedIn } = useUser();
   const api = useApi();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
-    if (isSignedIn) {
-      // Idempotent — safe to call on every login
-      api.post('/provision').catch(console.error);
-    }
+    if (!isSignedIn) return;
+
+    (async () => {
+      try {
+        await api.post('/provision');
+      } catch (e) {
+        console.error('provision failed', e);
+      }
+
+      if (location.pathname === '/setup') return;
+
+      try {
+        const res = await api.get('/gmail-setup/status');
+        if (!res.data.configured) {
+          navigate('/setup', { replace: true });
+        }
+      } catch (e) {
+        console.error('setup status check failed', e);
+      }
+    })();
   }, [isSignedIn]);
 
   return null;
@@ -37,7 +55,7 @@ function App() {
           <Route path="/*" element={
             <>
               <SignedIn>
-                <ProvisionOnLogin />
+                <AppInitializer />
                 <Layout>
                   <Routes>
                     <Route path="/" element={<Dashboard />} />

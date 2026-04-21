@@ -1,6 +1,6 @@
 """
 Database setup: creates PostgreSQL user, database, and all application tables.
-Refactored from Etl/database.py — takes credentials as parameters instead of reading from env.
+Table schemas must stay in sync with backend/app/models.py.
 """
 import psycopg2
 from psycopg2 import sql
@@ -74,109 +74,166 @@ def _init_tables(db_pass: str) -> None:
         user=DEFAULT_DB_USER,
         password=db_pass,
     )
-    commands = [
+
+    # -----------------------------------------------------------------------
+    # CREATE TABLE statements — must match backend/app/models.py exactly
+    # -----------------------------------------------------------------------
+    create_commands = [
+        # categories — model: Category
         """
         CREATE TABLE IF NOT EXISTS categories (
             id SERIAL PRIMARY KEY,
             name VARCHAR(50) UNIQUE NOT NULL,
-            color VARCHAR(20) DEFAULT '#94a3b8'
+            color VARCHAR(20) DEFAULT '#94a3b8',
+            is_income BOOLEAN DEFAULT FALSE
         )
         """,
+        # Default categories (seeded once)
         """
-        INSERT INTO categories (name, color) VALUES
-            ('Food', '#f87171'),
-            ('Transport', '#60a5fa'),
-            ('Shopping', '#c084fc'),
-            ('Bills', '#fbbf24'),
-            ('Health', '#4ade80'),
-            ('Uncategorized', '#cbd5e1')
+        INSERT INTO categories (name, color, is_income) VALUES
+            ('Food',          '#f87171', FALSE),
+            ('Transport',     '#60a5fa', FALSE),
+            ('Shopping',      '#c084fc', FALSE),
+            ('Bills',         '#fbbf24', FALSE),
+            ('Health',        '#4ade80', FALSE),
+            ('Salary',        '#34d399', TRUE),
+            ('Income',        '#a3e635', TRUE),
+            ('Uncategorized', '#cbd5e1', FALSE)
         ON CONFLICT (name) DO NOTHING
         """,
+        # transaction_rules — model: TransactionRule
         """
         CREATE TABLE IF NOT EXISTS transaction_rules (
             id SERIAL PRIMARY KEY,
-            keyword VARCHAR(100) NOT NULL,
             pattern VARCHAR(255),
             new_merchant_name VARCHAR(255),
             match_type VARCHAR(20) DEFAULT 'CONTAINS',
-            category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL
         )
         """,
+        # transactions — model: Transaction
         """
         CREATE TABLE IF NOT EXISTS transactions (
             id SERIAL PRIMARY KEY,
-            bank_name VARCHAR(50),
-            amount DECIMAL(10, 2),
-            payment_type VARCHAR(10),
-            account_num BIGINT,
-            payment_mode VARCHAR(20),
-            txn_date DATE,
-            upi_id VARCHAR(255),
             merchant_name VARCHAR(255),
+            amount DECIMAL(10, 2),
+            txn_date DATE,
+            payment_mode VARCHAR(20),
+            payment_type VARCHAR(10),
+            bank_name VARCHAR(50),
             upi_transaction_id VARCHAR(100) UNIQUE,
-            potential_duplicate_of_id INTEGER REFERENCES transactions(id),
-            category_id INTEGER REFERENCES categories(id),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            category_id INTEGER REFERENCES categories(id)
         )
         """,
+        # unmatched_emails — model: StagingTransaction
         """
         CREATE TABLE IF NOT EXISTS unmatched_emails (
             id SERIAL PRIMARY KEY,
             email_uid VARCHAR(50) UNIQUE,
-            email_subject TEXT,
+            email_subject VARCHAR(255),
             email_body TEXT,
-            received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            received_at TIMESTAMP
         )
         """,
+        # ignored_duplicates — model: IgnoredDuplicate
         """
         CREATE TABLE IF NOT EXISTS ignored_duplicates (
             id SERIAL PRIMARY KEY,
-            transaction_id INTEGER REFERENCES transactions(id) ON DELETE CASCADE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            txn1_id INTEGER,
+            txn2_id INTEGER
         )
         """,
+        # user_settings — model: UserSettings
         """
         CREATE TABLE IF NOT EXISTS user_settings (
             id SERIAL PRIMARY KEY,
             salary_day INTEGER DEFAULT 1,
             monthly_budget DECIMAL(10, 2),
-            ignored_categories TEXT[],
+            budget_type VARCHAR(20) DEFAULT 'FIXED',
+            budget_value DECIMAL(10, 2),
+            ignored_categories TEXT DEFAULT '',
+            income_categories TEXT DEFAULT 'Salary,Income',
             view_cycle_offset INTEGER DEFAULT 0
         )
         """,
+        # recurring_expenses — model: RecurringExpense
         """
         CREATE TABLE IF NOT EXISTS recurring_expenses (
             id SERIAL PRIMARY KEY,
             merchant_name VARCHAR(255),
             amount DECIMAL(10, 2),
             frequency VARCHAR(20),
-            last_seen DATE,
-            category_id INTEGER REFERENCES categories(id)
+            next_due_date DATE,
+            last_transaction_id INTEGER REFERENCES transactions(id)
         )
         """,
+        # monthly_goals — model: MonthlyGoal
         """
         CREATE TABLE IF NOT EXISTS monthly_goals (
             id SERIAL PRIMARY KEY,
-            category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
-            month INTEGER,
-            year INTEGER,
-            budget DECIMAL(10, 2),
-            UNIQUE(category_id, month, year)
+            category_id INTEGER REFERENCES categories(id) NOT NULL,
+            cap_amount DECIMAL(10, 2) NOT NULL,
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_via VARCHAR(20) DEFAULT 'manual'
         )
         """,
-        # Ensure category_id column exists on transactions (migration safety)
-        """
-        ALTER TABLE transactions
-            ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES categories(id)
-        """,
+    ]
+
+    # -----------------------------------------------------------------------
+    # Migration commands — add columns missing from older installations.
+    # Safe to run on a fresh install (IF NOT EXISTS / DO NOTHING).
+    # -----------------------------------------------------------------------
+    migration_commands = [
+        # categories: added is_income
+        "ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_income BOOLEAN DEFAULT FALSE",
+
+        # transaction_rules: drop the old NOT-NULL keyword constraint so existing
+        # installs don't reject inserts from the backend (which never sends keyword)
+        "ALTER TABLE transaction_rules ALTER COLUMN keyword DROP NOT NULL",
+
+        # transactions: ensure category_id exists (legacy installs may lack it)
+        "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES categories(id)",
+
+        # user_settings: added budget_type, budget_value, income_categories
+        "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS budget_type VARCHAR(20) DEFAULT 'FIXED'",
+        "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS budget_value DECIMAL(10,2)",
+        "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS income_categories TEXT DEFAULT 'Salary,Income'",
+
+        # recurring_expenses: old schema used last_seen + category_id; new schema uses next_due_date + last_transaction_id
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS next_due_date DATE",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS last_transaction_id INTEGER REFERENCES transactions(id)",
+
+        # monthly_goals: old schema used month/year/budget; new schema uses cap_amount/is_active/created_at/created_via
+        "ALTER TABLE monthly_goals ADD COLUMN IF NOT EXISTS cap_amount DECIMAL(10,2)",
+        "ALTER TABLE monthly_goals ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE monthly_goals ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        "ALTER TABLE monthly_goals ADD COLUMN IF NOT EXISTS created_via VARCHAR(20) DEFAULT 'manual'",
+
+        # ignored_duplicates: old schema used transaction_id; new schema uses txn1_id + txn2_id
+        "ALTER TABLE ignored_duplicates ADD COLUMN IF NOT EXISTS txn1_id INTEGER",
+        "ALTER TABLE ignored_duplicates ADD COLUMN IF NOT EXISTS txn2_id INTEGER",
     ]
 
     try:
         cur = conn.cursor()
-        for cmd in commands:
+
+        # Phase 1: create tables and seed — commit atomically
+        for cmd in create_commands:
             cur.execute(cmd)
-        # Back-fill nulls in category_id
+        conn.commit()
+
+        # Phase 2: migrations — each runs in its own savepoint so a single failure
+        # doesn't roll back the others
+        for cmd in migration_commands:
+            try:
+                cur.execute("SAVEPOINT migration_step")
+                cur.execute(cmd)
+                cur.execute("RELEASE SAVEPOINT migration_step")
+            except Exception:
+                cur.execute("ROLLBACK TO SAVEPOINT migration_step")
+
+        # Phase 3: back-fill transactions that have no category
         cur.execute(
             """
             UPDATE transactions

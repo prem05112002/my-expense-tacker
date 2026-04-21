@@ -1,16 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
+from .. import models
 from ..database import get_db_for_user
 from ..auth import get_current_user_id
 from ..schemas.goals import GoalCreate, GoalUpdate, GoalOut, GoalWithProgress
+from ..services import goals as goals_service
 
 
 async def get_db(user_id: str = Depends(get_current_user_id)):
     async for session in get_db_for_user(user_id):
         yield session
-from ..services import goals as goals_service
 
 router = APIRouter(prefix="/goals", tags=["Goals"])
 
@@ -26,9 +28,6 @@ async def create_goal(goal_data: GoalCreate, db: AsyncSession = Depends(get_db))
     """Create a new spending goal for a category."""
     goal = await goals_service.create_goal(db, goal_data)
 
-    # Fetch category info for response
-    from sqlalchemy import select
-    from .. import models
     cat_stmt = select(models.Category).where(models.Category.id == goal.category_id)
     cat_result = await db.execute(cat_stmt)
     category = cat_result.scalar_one_or_none()
@@ -56,9 +55,6 @@ async def update_goal(
     if not goal:
         raise HTTPException(status_code=404, detail="Goal not found")
 
-    # Fetch category info for response
-    from sqlalchemy import select
-    from .. import models
     cat_stmt = select(models.Category).where(models.Category.id == goal.category_id)
     cat_result = await db.execute(cat_stmt)
     category = cat_result.scalar_one_or_none()

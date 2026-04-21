@@ -16,7 +16,6 @@ from .transactions import (
 from .subscription import RecurringExpenseBase, RecurringExpenseOut, SubscriptionAction
 from .trends import (
     MonthlySpend,
-    WeeklySpend,
     CategoryTrend,
     SeasonalPattern,
     DayOfWeekSpend,

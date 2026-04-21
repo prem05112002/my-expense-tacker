@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import {
-    TrendingUp, TrendingDown, Settings, Calendar, RefreshCw
+    TrendingUp, TrendingDown, Settings, Calendar, RefreshCw, ChevronDown
 } from 'lucide-react';
 import { getAmountColor, formatCurrency } from '../utils/formatters';
 import { DashboardSkeleton } from '../components/ui/CardSkeleton';
@@ -268,23 +268,5 @@ const Dashboard = () => {
         </div>
     );
 };
-
-// Simple Icon component helper if ChevronDown wasn't imported
-const ChevronDown = ({ size, className }) => (
-    <svg 
-        xmlns="http://www.w3.org/2000/svg" 
-        width={size} 
-        height={size} 
-        viewBox="0 0 24 24" 
-        fill="none" 
-        stroke="currentColor" 
-        strokeWidth="2" 
-        strokeLinecap="round" 
-        strokeLinejoin="round" 
-        className={className}
-    >
-        <path d="m6 9 6 6 6-6"/>
-    </svg>
-);
 
 export default Dashboard;

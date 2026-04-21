@@ -9,13 +9,6 @@ class MonthlySpend(BaseModel):
     transaction_count: int
 
 
-class WeeklySpend(BaseModel):
-    week_start: date
-    week_end: date
-    total: float
-    transaction_count: int
-
-
 class CategoryTrend(BaseModel):
     category: str
     color: str
