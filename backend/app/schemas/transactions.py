@@ -11,15 +11,6 @@ class TransactionBase(BaseModel):
     bank_name: Optional[str]
     upi_transaction_id: Optional[str] = None
 
-class PaginatedResponse(BaseModel):
-    data: List[TransactionOut]
-    total: int
-    page: int
-    limit: int
-    total_pages: int
-    debit_sum: float = 0.0
-    credit_sum: float = 0.0
-
 class TransactionOut(BaseModel):
     id: int
     amount: float
@@ -31,9 +22,18 @@ class TransactionOut(BaseModel):
     payment_mode: Optional[str] = None
     bank_name: Optional[str] = None
     upi_transaction_id: Optional[str] = None
-    
+
     class Config:
         from_attributes = True
+
+class PaginatedResponse(BaseModel):
+    data: List[TransactionOut]
+    total: int
+    page: int
+    limit: int
+    total_pages: int
+    debit_sum: float = 0.0
+    credit_sum: float = 0.0
 
 class TransactionUpdate(BaseModel):
     merchant_name: str
