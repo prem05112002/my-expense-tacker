@@ -112,6 +112,7 @@ async def update_settings(db: AsyncSession, data: schemas.UserSettingsUpdate):
     settings.salary_day = data.salary_day
     settings.budget_type = data.budget_type
     settings.budget_value = data.budget_value
+    settings.monthly_budget = data.budget_value if data.budget_type == "FIXED" else None
     if data.ignored_categories is not None: settings.ignored_categories = ",".join(data.ignored_categories)
     else: settings.ignored_categories = ""
     if data.income_categories is not None: settings.income_categories = ",".join(data.income_categories)

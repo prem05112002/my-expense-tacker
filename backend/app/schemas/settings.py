@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, field_validator
-from typing import Any, List
+from typing import Any, List, Optional
 
 class UserSettingsUpdate(BaseModel):
     salary_day: int
@@ -29,8 +29,8 @@ class UserSettingsOut(BaseModel):
     salary_day: int
     budget_type: str
     budget_value: float
-    monthly_budget: float
-    view_cycle_offset: int
+    monthly_budget: Optional[float] = None
+    view_cycle_offset: Optional[int] = None
     
     # ✅ OUTPUTS AS LISTS
     ignored_categories: List[str]

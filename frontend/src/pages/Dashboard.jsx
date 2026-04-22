@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../api/axios';
 import {
-    TrendingUp, TrendingDown, Settings, Calendar, RefreshCw, ChevronDown
+    TrendingUp, TrendingDown, Settings, Calendar, RefreshCw, ChevronDown, AlertTriangle
 } from 'lucide-react';
 import { getAmountColor, formatCurrency } from '../utils/formatters';
 import { DashboardSkeleton } from '../components/ui/CardSkeleton';
@@ -18,6 +18,7 @@ const Dashboard = () => {
     const [cycleOffset, setCycleOffset] = useState(0);
     const [syncing, setSyncing] = useState(false);
     const [syncResult, setSyncResult] = useState(null);
+    const [setupIncomplete, setSetupIncomplete] = useState(false);
     const budgetAlertShown = useRef(false);
     const toast = useToast();
 
@@ -94,6 +95,12 @@ const Dashboard = () => {
     useEffect(() => {
         fetchStats();
     }, [cycleOffset]);
+
+    useEffect(() => {
+        api.get('/dashboard/settings')
+            .then(res => setSetupIncomplete(res.data.monthly_budget == null))
+            .catch(() => {});
+    }, []);
 
     // Budget alert toast (show once per session when >= 80%)
     useEffect(() => {
@@ -189,6 +196,19 @@ const Dashboard = () => {
                     </Link>
                 </div>
             </div>
+
+            {/* --- SETUP INCOMPLETE BANNER --- */}
+            {setupIncomplete && (
+                <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 shrink-0">
+                    <AlertTriangle size={16} className="text-amber-400 shrink-0" />
+                    <p className="text-sm text-amber-200">
+                        Your budget isn't configured yet — insights may be inaccurate.{' '}
+                        <Link to="/profile" className="font-bold text-amber-400 underline underline-offset-2 hover:text-amber-300 transition-colors">
+                            Complete setup in Profile →
+                        </Link>
+                    </p>
+                </div>
+            )}
 
             {/* --- HERO CARDS --- */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 shrink-0">
