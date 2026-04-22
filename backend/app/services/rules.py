@@ -90,6 +90,21 @@ async def get_or_create_settings(db: AsyncSession):
         db.add(settings)
         await db.commit()
         await db.refresh(settings)
+    else:
+        # Backfill any NULL columns left by old provisions that only inserted imap_configured
+        dirty = False
+        if settings.salary_day is None:
+            settings.salary_day = 1
+            dirty = True
+        if settings.budget_type is None:
+            settings.budget_type = "FIXED"
+            dirty = True
+        if settings.budget_value is None:
+            settings.budget_value = 50000.0
+            dirty = True
+        if dirty:
+            await db.commit()
+            await db.refresh(settings)
     return settings
 
 async def update_settings(db: AsyncSession, data: schemas.UserSettingsUpdate):
