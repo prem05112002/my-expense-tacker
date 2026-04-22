@@ -36,7 +36,10 @@ async def get_current_user_id(
             audience="authenticated",
         )
         return payload["sub"]  # Supabase UUID e.g. "a1b2c3d4-..."
-    except Exception:
+    except Exception as e:
+        import traceback
+        print(f"[AUTH ERROR] {type(e).__name__}: {e}")
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
