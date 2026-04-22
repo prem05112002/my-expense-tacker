@@ -9,6 +9,7 @@ test_trails/
 # --- Local testing & planning docs ---
 testing/
 plan/
+progress/
 
 # --- Database ---
 *.db
