@@ -74,6 +74,9 @@ async def provision_user_schema(user_id: str):
         settings_result = await session.execute(text("SELECT COUNT(*) FROM user_settings"))
         if settings_result.scalar() == 0:
             await session.execute(text("""
-                INSERT INTO user_settings (imap_configured) VALUES (FALSE)
+                INSERT INTO user_settings
+                    (salary_day, budget_type, budget_value, ignored_categories, income_categories, view_cycle_offset, imap_configured)
+                VALUES
+                    (1, 'FIXED', 50000.0, '', 'Salary,Income', 0, FALSE)
             """))
         await session.commit()

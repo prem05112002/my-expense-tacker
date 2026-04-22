@@ -1,7 +1,9 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_, update, delete
+from sqlalchemy.exc import ProgrammingError
 from typing import List
+from fastapi import HTTPException
 from .. import models, schemas
 
 async def preview_rule_changes(db: AsyncSession, pattern: str, match_type: str):
@@ -72,8 +74,16 @@ async def apply_rules_to_single_transaction(db: AsyncSession, txn: models.Transa
             break 
 
 async def get_or_create_settings(db: AsyncSession):
-    stmt = select(models.UserSettings).limit(1)
-    result = await db.execute(stmt)
+    try:
+        stmt = select(models.UserSettings).limit(1)
+        result = await db.execute(stmt)
+    except ProgrammingError as e:
+        if "does not exist" in str(e.orig):
+            raise HTTPException(
+                status_code=412,
+                detail="User schema not provisioned — call POST /provision first",
+            )
+        raise
     settings = result.scalar_one_or_none()
     if not settings:
         settings = models.UserSettings(salary_day=1, budget_type="PERCENTAGE", budget_value=40.0)
