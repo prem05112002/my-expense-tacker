@@ -55,7 +55,7 @@ async def run_email_sync(user_id: str, db: AsyncSession) -> dict:
     state = _sync_states.get(user_id, _default_state())
 
     if state["status"] == SyncStatus.RUNNING:
-        return {"error": "sync_in_progress", **get_sync_status(user_id)}
+        return {**get_sync_status(user_id), "error": "sync_in_progress"}
 
     schema = _safe_schema_name(user_id)
 
