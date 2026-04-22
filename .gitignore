@@ -6,6 +6,10 @@ secrets.py
 # --- Trail Folders ---
 test_trails/
 
+# --- Local testing & planning docs ---
+testing/
+plan/
+
 # --- Database ---
 *.db
 *.sqlite3
