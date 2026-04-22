@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import api from '../api/axios';
+import { useApi } from '../api/axios';
 import {
     TrendingUp, TrendingDown, Settings, Calendar, RefreshCw, ChevronDown
 } from 'lucide-react';
@@ -12,6 +12,7 @@ import GoalsCard from '../components/ui/GoalsCard';
 import { useToast } from '../contexts/ToastContext';
 
 const Dashboard = () => {
+    const api = useApi();
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const [cycleOffset, setCycleOffset] = useState(0);
