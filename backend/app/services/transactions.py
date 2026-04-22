@@ -1,11 +1,12 @@
 
 import random
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, or_, update, delete
+from sqlalchemy import select, func, desc, or_, update, delete, text
 from typing import Optional
 from datetime import date
 from fastapi import BackgroundTasks
 from .. import models, schemas
+from ..crypto import decrypt
 from .etl import move_email_in_background, NON_TXN_FOLDER
 
 COLOR_PALETTE = [
@@ -196,7 +197,15 @@ async def dismiss_staging_item(db: AsyncSession, staging_id: int, background_tas
     email_uid = item.email_uid
     await db.delete(item)
     await db.commit()
-    if email_uid: background_tasks.add_task(move_email_in_background, email_uid, NON_TXN_FOLDER)
+    if email_uid:
+        creds = await db.execute(text("SELECT imap_user, imap_pass_enc FROM user_settings LIMIT 1"))
+        row = creds.fetchone()
+        if row and row.imap_user and row.imap_pass_enc:
+            try:
+                imap_pass = decrypt(row.imap_pass_enc)
+                background_tasks.add_task(move_email_in_background, email_uid, NON_TXN_FOLDER, row.imap_user, imap_pass)
+            except Exception:
+                pass
     return {"status": "dismissed"}
 
 async def convert_staging_to_transaction(db: AsyncSession, data: schemas.StagingConvert, background_tasks: BackgroundTasks):
@@ -212,5 +221,13 @@ async def convert_staging_to_transaction(db: AsyncSession, data: schemas.Staging
     db.add(new_txn)
     await db.delete(staging_item)
     await db.commit()
-    if email_uid: background_tasks.add_task(move_email_in_background, email_uid, DEST_FOLDER)
+    if email_uid:
+        creds = await db.execute(text("SELECT imap_user, imap_pass_enc FROM user_settings LIMIT 1"))
+        row = creds.fetchone()
+        if row and row.imap_user and row.imap_pass_enc:
+            try:
+                imap_pass = decrypt(row.imap_pass_enc)
+                background_tasks.add_task(move_email_in_background, email_uid, DEST_FOLDER, row.imap_user, imap_pass)
+            except Exception:
+                pass
     return {"status": "converted", "transaction_id": new_txn.id}
