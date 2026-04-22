@@ -1,25 +1,9 @@
-import sys
-import os
 import asyncio
 from datetime import datetime
-from typing import Optional
 from enum import Enum
 
-# Path setup to import ETL modules
-try:
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    backend_dir = os.path.dirname(current_dir)
-    services_dir = os.path.dirname(backend_dir)
-    project_root = os.path.dirname(services_dir)
-
-    etl_path = os.path.join(project_root, "Etl")
-    if etl_path not in sys.path:
-        sys.path.append(etl_path)
-
-    # Only import if we can - avoid startup failures
-    ETL_AVAILABLE = True
-except Exception:
-    ETL_AVAILABLE = False
+from ..etl.email_service import EmailService
+from ..etl.parsers import extract_metadata, clean_text
 
 
 class SyncStatus(str, Enum):
