@@ -35,6 +35,8 @@ class EmailService:
                 return []
 
             return messages[0].split()
+        except LookupError:
+            raise
         except Exception as e:
             print(f"Fetch Error: {e}")
             return []
