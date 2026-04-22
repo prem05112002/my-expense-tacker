@@ -97,17 +97,31 @@ async def run_email_sync(user_id: str, db: AsyncSession) -> dict:
             imap_pass,
             schema,
         )
-        _sync_states[user_id].update({
-            "status": SyncStatus.COMPLETED,
-            "completed_at": datetime.now(),
-            "emails_processed": result["emails_processed"],
-            "transactions_saved": result["transactions_saved"],
-            "emails_unmatched": result["emails_unmatched"],
-        })
+        emails_processed = result["emails_processed"]
+        transactions_saved = result["transactions_saved"]
+
+        if emails_processed == 0:
+            # Pipeline ran successfully but there were no new emails
+            _sync_states[user_id].update({
+                "status": SyncStatus.COMPLETED,
+                "completed_at": datetime.now(),
+                "error": "no_new_emails",
+                "emails_processed": 0,
+                "transactions_saved": 0,
+                "emails_unmatched": 0,
+            })
+        else:
+            _sync_states[user_id].update({
+                "status": SyncStatus.COMPLETED,
+                "completed_at": datetime.now(),
+                "emails_processed": emails_processed,
+                "transactions_saved": transactions_saved,
+                "emails_unmatched": result["emails_unmatched"],
+            })
+
         print(
             f"[sync] User {user_id}: completed — "
-            f"{result['emails_processed']} processed, "
-            f"{result['transactions_saved']} saved"
+            f"{emails_processed} processed, {transactions_saved} saved"
         )
     except ConnectionError as e:
         _sync_states[user_id].update({
@@ -116,14 +130,20 @@ async def run_email_sync(user_id: str, db: AsyncSession) -> dict:
             "error": "imap_auth_failed",
         })
         print(f"[sync] User {user_id}: IMAP auth failed — {e}")
-    except Exception as e:
-        error_msg = str(e)
+    except LookupError as e:
         _sync_states[user_id].update({
             "status": SyncStatus.FAILED,
             "completed_at": datetime.now(),
-            "error": error_msg,
+            "error": "imap_label_missing",
         })
-        print(f"[sync] User {user_id}: sync failed — {error_msg}")
+        print(f"[sync] User {user_id}: Gmail label missing — {e}")
+    except Exception as e:
+        _sync_states[user_id].update({
+            "status": SyncStatus.FAILED,
+            "completed_at": datetime.now(),
+            "error": "db_error",
+        })
+        print(f"[sync] User {user_id}: sync failed — {e}")
         import traceback
         traceback.print_exc()
 

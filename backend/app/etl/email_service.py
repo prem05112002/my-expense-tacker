@@ -27,8 +27,7 @@ class EmailService:
         try:
             status, _ = self.mail.select(folder)
             if status != "OK":
-                print(f"Cannot select folder {folder}")
-                return []
+                raise LookupError(f"Gmail label '{folder}' not found — create it and try again")
 
             status, messages = self.mail.uid('search', None, "ALL")
 
