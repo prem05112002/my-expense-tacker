@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import api from '../api/axios';
+import { useApi } from '../api/axios';
 import {
     TrendingUp, TrendingDown, Settings, Calendar, RefreshCw, ChevronDown
 } from 'lucide-react';
@@ -12,6 +12,7 @@ import GoalsCard from '../components/ui/GoalsCard';
 import { useToast } from '../contexts/ToastContext';
 
 const Dashboard = () => {
+    const api = useApi();
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const [cycleOffset, setCycleOffset] = useState(0);
@@ -19,6 +20,16 @@ const Dashboard = () => {
     const [syncResult, setSyncResult] = useState(null);
     const budgetAlertShown = useRef(false);
     const toast = useToast();
+
+    const SYNC_ERROR_MESSAGES = {
+        sync_in_progress:    "Sync is already running...",
+        imap_not_configured: "Set up your Gmail connection first.",
+        imap_auth_failed:    "Gmail login failed. Re-enter your app password in Settings.",
+        imap_label_missing:  "Gmail label 'sync-expense-tracker' not found. Create it and try again.",
+        imap_decrypt_failed: "Could not read stored credentials. Re-enter your app password in Settings.",
+        no_new_emails:       "No new transactions to sync.",
+        db_error:            "Something went wrong. Please try again.",
+    };
 
     const handleSync = async () => {
         if (syncing) return;
@@ -30,13 +41,29 @@ const Dashboard = () => {
             const res = await api.post('/sync/trigger');
             setSyncResult(res.data);
 
-            // Refresh dashboard data after sync completes
-            if (res.data.status === 'completed' && res.data.transactions_saved > 0) {
-                await fetchStats();
+            const { status, error, transactions_saved } = res.data;
+
+            if (status === 'completed' && !error) {
+                if (transactions_saved > 0) {
+                    toast.success(`Synced ${transactions_saved} new transaction${transactions_saved !== 1 ? 's' : ''}`);
+                    await fetchStats();
+                } else {
+                    toast.info("No new transactions to sync.");
+                }
+            } else if (error) {
+                const msg = SYNC_ERROR_MESSAGES[error] || "Sync failed. Please try again.";
+                if (error === 'no_new_emails') {
+                    toast.info(msg);
+                } else if (error === 'sync_in_progress') {
+                    toast.warning(msg);
+                } else {
+                    toast.error(msg);
+                }
             }
         } catch (error) {
             console.error("Sync failed:", error);
             setSyncResult({ status: 'failed', error: error.message || 'Sync failed' });
+            toast.error("Sync failed. Please try again.");
         } finally {
             setSyncing(false);
         }

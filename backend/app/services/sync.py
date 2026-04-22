@@ -1,25 +1,13 @@
-import sys
-import os
 import asyncio
 from datetime import datetime
-from typing import Optional
 from enum import Enum
 
-# Path setup to import ETL modules
-try:
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    backend_dir = os.path.dirname(current_dir)
-    services_dir = os.path.dirname(backend_dir)
-    project_root = os.path.dirname(services_dir)
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-    etl_path = os.path.join(project_root, "Etl")
-    if etl_path not in sys.path:
-        sys.path.append(etl_path)
-
-    # Only import if we can - avoid startup failures
-    ETL_AVAILABLE = True
-except Exception:
-    ETL_AVAILABLE = False
+from ..crypto import decrypt
+from ..database import _safe_schema_name
+from ..etl.pipeline import run_pipeline
 
 
 class SyncStatus(str, Enum):
@@ -29,165 +17,134 @@ class SyncStatus(str, Enum):
     FAILED = "failed"
 
 
-# In-memory sync state (resets on server restart)
-_sync_state = {
-    "status": SyncStatus.IDLE,
-    "started_at": None,
-    "completed_at": None,
-    "error": None,
-    "emails_processed": 0,
-    "transactions_saved": 0,
-}
+# Per-user sync state keyed by user_id (resets on server restart)
+_sync_states: dict[str, dict] = {}
 
 
-def get_sync_status() -> dict:
-    """Get current sync status."""
+def _default_state() -> dict:
     return {
-        "status": _sync_state["status"],
-        "started_at": _sync_state["started_at"].isoformat() if _sync_state["started_at"] else None,
-        "completed_at": _sync_state["completed_at"].isoformat() if _sync_state["completed_at"] else None,
-        "error": _sync_state["error"],
-        "emails_processed": _sync_state["emails_processed"],
-        "transactions_saved": _sync_state["transactions_saved"],
-    }
-
-
-async def run_email_sync() -> dict:
-    """
-    Run the ETL pipeline to sync emails.
-    Returns the sync status after completion.
-    """
-    global _sync_state
-
-    # Prevent concurrent syncs
-    if _sync_state["status"] == SyncStatus.RUNNING:
-        return {"error": "Sync already in progress", **get_sync_status()}
-
-    # Reset state
-    _sync_state = {
-        "status": SyncStatus.RUNNING,
-        "started_at": datetime.now(),
+        "status": SyncStatus.IDLE,
+        "started_at": None,
         "completed_at": None,
         "error": None,
         "emails_processed": 0,
         "transactions_saved": 0,
+        "emails_unmatched": 0,
     }
 
+
+def get_sync_status(user_id: str) -> dict:
+    state = _sync_states.get(user_id, _default_state())
+    return {
+        "status": state["status"],
+        "started_at": state["started_at"].isoformat() if state["started_at"] else None,
+        "completed_at": state["completed_at"].isoformat() if state["completed_at"] else None,
+        "error": state["error"],
+        "emails_processed": state["emails_processed"],
+        "transactions_saved": state["transactions_saved"],
+        "emails_unmatched": state["emails_unmatched"],
+    }
+
+
+async def run_email_sync(user_id: str, db: AsyncSession) -> dict:
+    """
+    Trigger an email sync for a specific user.
+    Retrieves their IMAP credentials from user_settings, then runs the
+    pipeline in a thread pool to avoid blocking the async event loop.
+    """
+    state = _sync_states.get(user_id, _default_state())
+
+    if state["status"] == SyncStatus.RUNNING:
+        return {**get_sync_status(user_id), "error": "sync_in_progress"}
+
+    schema = _safe_schema_name(user_id)
+
+    # Retrieve IMAP credentials from the user's schema
+    # (db session already has search_path set to this schema via get_db_for_user)
+    result = await db.execute(
+        text("SELECT imap_user, imap_pass_enc, imap_configured FROM user_settings LIMIT 1")
+    )
+    row = result.fetchone()
+
+    if not row or not row.imap_configured:
+        return {
+            "error": "imap_not_configured",
+            "message": "Complete Gmail setup before syncing",
+        }
+
+    imap_user = row.imap_user
     try:
-        print("[Sync] Starting email sync...")
+        imap_pass = decrypt(row.imap_pass_enc)
+    except Exception:
+        return {
+            "error": "imap_decrypt_failed",
+            "message": "Could not decrypt stored credentials. Re-enter your app password.",
+        }
 
-        if not ETL_AVAILABLE:
-            raise ImportError("ETL module not available")
+    # Mark as running
+    _sync_states[user_id] = {
+        **_default_state(),
+        "status": SyncStatus.RUNNING,
+        "started_at": datetime.now(),
+    }
 
-        # Import ETL components
-        print("[Sync] Importing ETL modules...")
-        from database import init_db, save_transaction, save_unmatched, get_db_connection, get_active_rules
-        from parsers import extract_metadata, clean_text
-        from email_service import EmailService
-        from config import SOURCE_FOLDER, DEST_FOLDER
-        print("[Sync] ETL modules imported successfully")
+    loop = asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(
+            None,
+            run_pipeline,
+            imap_user,
+            imap_pass,
+            schema,
+        )
+        emails_processed = result["emails_processed"]
+        transactions_saved = result["transactions_saved"]
 
-        # Run sync in a thread to avoid blocking
-        def sync_job():
-            print("[Sync] Running sync job in thread...")
-            emails_processed = 0
-            transactions_saved = 0
+        if emails_processed == 0:
+            # Pipeline ran successfully but there were no new emails
+            _sync_states[user_id].update({
+                "status": SyncStatus.COMPLETED,
+                "completed_at": datetime.now(),
+                "error": "no_new_emails",
+                "emails_processed": 0,
+                "transactions_saved": 0,
+                "emails_unmatched": 0,
+            })
+        else:
+            _sync_states[user_id].update({
+                "status": SyncStatus.COMPLETED,
+                "completed_at": datetime.now(),
+                "emails_processed": emails_processed,
+                "transactions_saved": transactions_saved,
+                "emails_unmatched": result["emails_unmatched"],
+            })
 
-            # Initialize
-            print("[Sync] Initializing database...")
-            init_db()
-            active_rules = get_active_rules()
-            print(f"[Sync] Loaded {len(active_rules)} automation rules")
-
-            # Connect to email
-            print("[Sync] Connecting to IMAP server...")
-            service = EmailService()
-            if not service.connect():
-                raise Exception("Failed to connect to IMAP server")
-            print("[Sync] Connected to IMAP server")
-
-            try:
-                # Fetch emails
-                print(f"[Sync] Fetching emails from '{SOURCE_FOLDER}'...")
-                email_ids = service.fetch_emails(SOURCE_FOLDER)
-
-                if not email_ids:
-                    print("[Sync] No emails found in source folder")
-                    return 0, 0
-                print(f"[Sync] Found {len(email_ids)} emails in source folder")
-
-                # Get existing UIDs
-                conn = get_db_connection()
-                existing_uids = set()
-                if conn:
-                    cur = conn.cursor()
-                    cur.execute("SELECT email_uid FROM unmatched_emails")
-                    existing_uids = {row[0] for row in cur.fetchall()}
-                    conn.close()
-
-                # Process emails
-                for e_id in email_ids:
-                    uid_str = e_id.decode('utf-8')
-
-                    if uid_str in existing_uids:
-                        continue
-
-                    subject, raw_body = service.get_email_content(e_id)
-
-                    if not raw_body:
-                        continue
-
-                    emails_processed += 1
-                    cleaned_body = clean_text(raw_body)
-                    transaction = extract_metadata(cleaned_body)
-
-                    if transaction:
-                        # Apply rules
-                        if transaction.merchant_name:
-                            for rule in active_rules:
-                                is_match = False
-                                if rule["type"] == "CONTAINS" and rule["pattern"].lower() in transaction.merchant_name.lower():
-                                    is_match = True
-                                elif rule["type"] == "EXACT" and rule["pattern"].lower() == transaction.merchant_name.lower():
-                                    is_match = True
-
-                                if is_match:
-                                    transaction.merchant_name = rule['new_name']
-                                    transaction.category_id = rule['cat_id']
-                                    break
-
-                        try:
-                            save_transaction(transaction)
-                            service.move_email(e_id, DEST_FOLDER)
-                            transactions_saved += 1
-                        except Exception as e:
-                            print(f"Failed to save transaction: {e}")
-                    else:
-                        save_unmatched(uid_str, subject, cleaned_body)
-
-            finally:
-                service.close()
-                print("[Sync] IMAP connection closed")
-
-            print(f"[Sync] Sync job complete: {emails_processed} processed, {transactions_saved} saved")
-            return emails_processed, transactions_saved
-
-        # Run in executor to avoid blocking the event loop
-        loop = asyncio.get_event_loop()
-        emails_processed, transactions_saved = await loop.run_in_executor(None, sync_job)
-
-        _sync_state["emails_processed"] = emails_processed
-        _sync_state["transactions_saved"] = transactions_saved
-        _sync_state["status"] = SyncStatus.COMPLETED
-        _sync_state["completed_at"] = datetime.now()
-        print(f"[Sync] Completed successfully: {emails_processed} emails, {transactions_saved} transactions")
-
+        print(
+            f"[sync] User {user_id}: completed — "
+            f"{emails_processed} processed, {transactions_saved} saved"
+        )
+    except ConnectionError as e:
+        _sync_states[user_id].update({
+            "status": SyncStatus.FAILED,
+            "completed_at": datetime.now(),
+            "error": "imap_auth_failed",
+        })
+        print(f"[sync] User {user_id}: IMAP auth failed — {e}")
+    except LookupError as e:
+        _sync_states[user_id].update({
+            "status": SyncStatus.FAILED,
+            "completed_at": datetime.now(),
+            "error": "imap_label_missing",
+        })
+        print(f"[sync] User {user_id}: Gmail label missing — {e}")
     except Exception as e:
-        _sync_state["status"] = SyncStatus.FAILED
-        _sync_state["error"] = str(e)
-        _sync_state["completed_at"] = datetime.now()
-        print(f"[Sync] FAILED with error: {str(e)}")
+        _sync_states[user_id].update({
+            "status": SyncStatus.FAILED,
+            "completed_at": datetime.now(),
+            "error": "db_error",
+        })
+        print(f"[sync] User {user_id}: sync failed — {e}")
         import traceback
         traceback.print_exc()
 
-    return get_sync_status()
+    return get_sync_status(user_id)

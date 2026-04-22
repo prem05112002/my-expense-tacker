@@ -69,4 +69,11 @@ async def provision_user_schema(user_id: str):
                     ('Uncategorized', '#cbd5e1', FALSE)
                 ON CONFLICT (name) DO NOTHING
             """))
-            await session.commit()
+
+        # Ensure a user_settings row exists so gmail-setup/save can UPDATE it
+        settings_result = await session.execute(text("SELECT COUNT(*) FROM user_settings"))
+        if settings_result.scalar() == 0:
+            await session.execute(text("""
+                INSERT INTO user_settings (imap_configured) VALUES (FALSE)
+            """))
+        await session.commit()
