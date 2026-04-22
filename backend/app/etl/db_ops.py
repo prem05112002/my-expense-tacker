@@ -18,6 +18,7 @@ def get_db_connection(schema_name: str) -> psycopg2.extensions.connection:
         database=_DB_NAME,
         user=_DB_USER,
         password=_DB_PASS,
+        sslmode="require",
     )
     cur = conn.cursor()
     cur.execute(f"SET search_path = {schema_name}")
@@ -106,7 +107,6 @@ def save_transaction(txn, schema_name: str) -> bool:
 
         t_bank = _truncate(txn.bank_name, 50)
         t_mode = _truncate(txn.payment_mode, 20)
-        t_upi = _truncate(txn.upi_id, 255)
         t_merch = _truncate(txn.merchant_name, 255)
         t_ref = _truncate(txn.upi_transaction_id, 100)
 
@@ -123,32 +123,31 @@ def save_transaction(txn, schema_name: str) -> bool:
             cur.execute(
                 """
                 INSERT INTO transactions
-                    (bank_name, amount, payment_type, account_num, payment_mode,
-                     txn_date, upi_id, merchant_name, upi_transaction_id, category_id,
-                     potential_duplicate_of_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL)
+                    (bank_name, amount, payment_type, payment_mode,
+                     txn_date, merchant_name, upi_transaction_id, category_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (upi_transaction_id) DO NOTHING
                 """,
-                (t_bank, txn.amount, txn.payment_type, txn.account_num,
-                 t_mode, txn.date, t_upi, t_merch, t_ref, final_cat_id),
+                (t_bank, txn.amount, txn.payment_type,
+                 t_mode, txn.date, t_merch, t_ref, final_cat_id),
             )
             inserted = cur.rowcount > 0
         else:
-            # Non-UPI — soft duplicate check
+            # Non-UPI — soft duplicate check (skip if already exists)
             original_id = _check_soft_duplicate(cur, txn)
             if original_id:
-                print(f"[db_ops] Soft duplicate flagged: linked to transaction #{original_id}")
+                print(f"[db_ops] Soft duplicate skipped: matches transaction #{original_id}")
+                return False
 
             cur.execute(
                 """
                 INSERT INTO transactions
-                    (bank_name, amount, payment_type, account_num, payment_mode,
-                     txn_date, upi_id, merchant_name, upi_transaction_id, category_id,
-                     potential_duplicate_of_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL, %s, %s)
+                    (bank_name, amount, payment_type, payment_mode,
+                     txn_date, merchant_name, upi_transaction_id, category_id)
+                VALUES (%s, %s, %s, %s, %s, %s, NULL, %s)
                 """,
-                (t_bank, txn.amount, txn.payment_type, txn.account_num,
-                 t_mode, txn.date, t_upi, t_merch, final_cat_id, original_id),
+                (t_bank, txn.amount, txn.payment_type,
+                 t_mode, txn.date, t_merch, final_cat_id),
             )
             inserted = True
 

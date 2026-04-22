@@ -23,7 +23,7 @@ class Transaction(Base):
     payment_mode = Column(String)  # UPI, CARD, NETBANKING
     payment_type = Column(String)  # DEBIT, CREDIT
     bank_name = Column(String, nullable=True)
-    upi_transaction_id = Column(String, nullable=True, index=True)
+    upi_transaction_id = Column(String, nullable=True, unique=True)
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     category = relationship("Category", back_populates="transactions")
 

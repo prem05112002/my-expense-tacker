@@ -153,7 +153,10 @@ def _init_tables(db_pass: str) -> None:
             budget_value DECIMAL(10, 2),
             ignored_categories TEXT DEFAULT '',
             income_categories TEXT DEFAULT 'Salary,Income',
-            view_cycle_offset INTEGER DEFAULT 0
+            view_cycle_offset INTEGER DEFAULT 0,
+            imap_user VARCHAR,
+            imap_pass_enc TEXT,
+            imap_configured BOOLEAN DEFAULT FALSE
         )
         """,
         # recurring_expenses — model: RecurringExpense
@@ -213,6 +216,11 @@ def _init_tables(db_pass: str) -> None:
         # ignored_duplicates: old schema used transaction_id; new schema uses txn1_id + txn2_id
         "ALTER TABLE ignored_duplicates ADD COLUMN IF NOT EXISTS txn1_id INTEGER",
         "ALTER TABLE ignored_duplicates ADD COLUMN IF NOT EXISTS txn2_id INTEGER",
+
+        # user_settings: added imap_user, imap_pass_enc, imap_configured (Gmail sync feature)
+        "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS imap_user VARCHAR",
+        "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS imap_pass_enc TEXT",
+        "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS imap_configured BOOLEAN DEFAULT FALSE",
     ]
 
     try:
