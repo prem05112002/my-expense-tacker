@@ -1,3 +1,4 @@
+import asyncio
 import imaplib
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -23,6 +24,24 @@ async def _get_user_db(user_id: str = Depends(get_current_user_id)):
         yield session
 
 
+def _test_imap_connection(email: str, app_password: str) -> list[str]:
+    """Runs blocking IMAP I/O in a thread — must not be called from the event loop directly."""
+    mail = imaplib.IMAP4_SSL("imap.gmail.com")
+    try:
+        try:
+            mail.login(email, app_password)
+        except imaplib.IMAP4.error:
+            raise ValueError("IMAP login failed — check email and app password")
+        _, folders = mail.list()
+        existing = [f.decode().split('"."')[-1].strip().strip('"') for f in folders]
+        return [label for label in REQUIRED_LABELS if label in existing]
+    finally:
+        try:
+            mail.logout()
+        except Exception:
+            pass
+
+
 @router.post("/save")
 async def save_and_verify(
     creds: GmailCredentials,
@@ -33,20 +52,13 @@ async def save_and_verify(
     Verifies the IMAP connection is working, then saves the credentials.
     Returns which of the 3 required labels already exist in the user's Gmail.
     """
-    # 1. Test the connection before saving anything
+    # 1. Test the connection in a thread so it doesn't block the event loop
     try:
-        mail = imaplib.IMAP4_SSL("imap.gmail.com")
-        mail.login(creds.email, creds.app_password)
-    except imaplib.IMAP4.error:
-        raise HTTPException(status_code=400, detail="IMAP login failed — check email and app password")
+        found_labels = await asyncio.to_thread(_test_imap_connection, creds.email, creds.app_password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    # 2. Check which required labels already exist
-    _, folders = mail.list()
-    existing = [f.decode().split('"."')[-1].strip().strip('"') for f in folders]
-    found_labels = [label for label in REQUIRED_LABELS if label in existing]
-    mail.logout()
-
-    # 3. Save encrypted credentials
+    # Save encrypted credentials
     enc_pass = encrypt(creds.app_password)
     await db.execute(text("""
         UPDATE user_settings
