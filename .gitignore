@@ -1,6 +1,7 @@
 # --- Security (CRITICAL) ---
 .env
-.env.local
+.env.*
+!.env.example
 secrets.py
 
 # --- Trail Folders ---
