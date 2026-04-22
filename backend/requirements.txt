@@ -3,11 +3,9 @@ uvicorn
 sqlalchemy
 asyncpg
 psycopg2-binary
-pydantic-settings
 greenlet
 rapidfuzz
 httpx
-python-dotenv
 PyJWT
 cryptography
 beautifulsoup4

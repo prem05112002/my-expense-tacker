@@ -12,12 +12,6 @@ testing/
 plan/
 progress/
 
-# --- Database ---
-*.db
-*.sqlite3
-site.db
-instance/
-
 # --- Python & Virtual Environment ---
 __pycache__/
 *.pyc

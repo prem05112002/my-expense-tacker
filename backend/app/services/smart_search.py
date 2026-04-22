@@ -2,20 +2,14 @@ import os
 import re
 import json
 import httpx
-from pathlib import Path
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from dotenv import load_dotenv
 
 from .. import models
 from ..schemas.smart_search import SmartSearchFilters, SmartSearchRequest, SmartSearchResponse
 from .transactions import get_filtered_transactions
-
-# Load environment variables from backend/.env
-_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-load_dotenv(_env_path)
 
 # Date-related keywords for smart search detection
 DATE_KEYWORDS = [

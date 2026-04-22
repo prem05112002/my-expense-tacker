@@ -2,9 +2,6 @@ import os
 import psycopg2
 from typing import Optional
 
-import dotenv
-dotenv.load_dotenv()
-
 _DB_HOST = os.getenv("PG_HOST")
 _DB_NAME = os.getenv("DB_NAME")
 _DB_USER = os.getenv("DB_USER")

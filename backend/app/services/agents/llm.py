@@ -7,17 +7,11 @@ import logging
 import os
 import re
 from datetime import date, datetime
-from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import httpx
-from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
-
-# Load environment variables from backend/.env
-_env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env"
-load_dotenv(_env_path)
 
 
 # Rate limiting state (in-memory - resets on server restart)
@@ -221,7 +215,7 @@ Type: unknown"""
 
     response = await call_gemini_api(prompt)
     if not response:
-        return None, None, "No response from LLM. Check if GEMINI_API_KEY is configured in backend/.env"
+        return None, None, "No response from LLM. Check if GEMINI_API_KEY is set in environment variables"
 
     # Check if response is an error message from the API
     error_prefixes = ["API error:", "Error calling LLM:", "Rate limit exceeded:"]

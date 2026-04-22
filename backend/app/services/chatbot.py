@@ -4,12 +4,10 @@ import re
 import httpx
 import uuid
 import time
-from pathlib import Path
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from dotenv import load_dotenv
 from .analytics import calculate_financial_health
 from .trends import get_trends_overview, simulate_affordability
 from . import chatbot_compute
@@ -20,11 +18,6 @@ from ..schemas.chatbot import (
     get_query_plan_schema_v2, get_multi_operation_schema
 )
 from .. import models
-
-# Load environment variables from backend/.env
-_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-load_dotenv(_env_path)
-
 
 # Rate limiting state (in-memory - resets on server restart)
 _rate_limit_state = {
@@ -435,7 +428,7 @@ Price: 0"""
 
     response = await _call_gemini_api(prompt)
     if not response:
-        return None, None, "No response from LLM. Check if GEMINI_API_KEY is configured in backend/.env"
+        return None, None, "No response from LLM. Check if GEMINI_API_KEY is set in environment variables"
 
     # Check if response is an error message from the API
     error_prefixes = ["API error:", "Error calling LLM:", "Rate limit exceeded:"]

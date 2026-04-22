@@ -17,9 +17,7 @@ app = FastAPI(title="Expense Tracker API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://my-expense-tacker.vercel.app",   # replace with real Vercel URL after Phase 6
-        "http://localhost:5173",
-        "http://localhost:3000",
+        "https://my-expense-tacker.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
