@@ -125,7 +125,7 @@ const Dashboard = () => {
         budgetUsedPercent = 100;
     }
 
-    const timePassedPercent = Math.min((stats.days_passed / stats.days_in_cycle) * 100, 100);
+    const timePassedPercent = stats.days_in_cycle > 0 ? Math.min((stats.days_passed / stats.days_in_cycle) * 100, 100) : 0;
     
     const isSpendingMore = stats.spend_diff_percent > 0;
     const spendDiffAbs = Math.abs(stats.spend_diff_percent).toFixed(1);

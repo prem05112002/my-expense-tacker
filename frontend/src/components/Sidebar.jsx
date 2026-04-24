@@ -2,7 +2,8 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Receipt, AlertCircle, Copy, Wallet, User, X } from 'lucide-react';
 
-const Sidebar = ({ isOpen, onClose }) => {
+const Sidebar = ({ isOpen, onClose, session }) => {
+    const displayName = session?.user?.user_metadata?.full_name ?? session?.user?.email ?? 'User'
     const location = useLocation();
 
     const menuItems = [
@@ -77,7 +78,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                 {/* Greeting */}
                 <div className="mb-8 px-2">
                     <div className="text-slate-400 text-xs uppercase font-bold tracking-wider mb-1">Welcome</div>
-                    <h2 className="text-2xl font-semibold text-white">Hi, Prem</h2>
+                    <h2 className="text-2xl font-semibold text-white">Hi, {displayName}</h2>
                 </div>
 
                 {/* Main Menu */}

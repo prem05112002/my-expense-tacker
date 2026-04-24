@@ -191,7 +191,7 @@ const NeedsReview = () => {
                                 className={`p-4 border-b border-white/5 cursor-pointer transition-colors hover:bg-white/5 ${selectedId === item.id ? 'bg-blue-500/10 border-l-2 border-l-blue-500' : ''}`}
                             >
                                 <div className="flex justify-between mb-1">
-                                    <span className="font-semibold text-slate-200 text-sm truncate pr-2">HDFC Bank</span>
+                                    <span className="font-semibold text-slate-200 text-sm truncate pr-2">Bank Email</span>
                                     <span className="text-[10px] text-slate-500 whitespace-nowrap">
                                         {item.received_at ? new Date(item.received_at).toLocaleDateString() : 'Unknown'}
                                     </span>
@@ -215,7 +215,7 @@ const NeedsReview = () => {
                         <div className="p-6 border-b border-white/5 bg-[#111]">
                             <h3 className="text-lg font-bold text-white mb-2">{selectedItem.email_subject}</h3>
                             <div className="flex gap-4 text-xs text-slate-500 font-mono mb-4">
-                                <span>FROM: HDFC Bank</span>
+                                <span>BANK EMAIL</span>
                                 <span>ID: {selectedItem.email_uid}</span>
                             </div>
                             

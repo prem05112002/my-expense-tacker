@@ -7,7 +7,8 @@ from datetime import date
 from fastapi import BackgroundTasks
 from .. import models, schemas
 from ..crypto import decrypt
-from .etl import move_email_in_background, NON_TXN_FOLDER
+from .etl import move_email_in_background, NON_TXN_FOLDER, DEST_FOLDER
+from .rules import apply_rules_to_single_transaction
 
 COLOR_PALETTE = [
     "#ef4444", "#f97316", "#f59e0b", "#84cc16", "#10b981", "#06b6d4", 
@@ -216,7 +217,7 @@ async def convert_staging_to_transaction(db: AsyncSession, data: schemas.Staging
     email_uid = staging_item.email_uid
     txn_date_obj = data.txn_date
     if isinstance(txn_date_obj, str): txn_date_obj = date.fromisoformat(txn_date_obj)
-    new_txn = models.Transaction(merchant_name=data.merchant_name, amount=data.amount, txn_date=txn_date_obj, payment_mode=data.payment_mode, payment_type=data.payment_type, category_id=data.category_id, bank_name="HDFC Bank", upi_transaction_id=None)
+    new_txn = models.Transaction(merchant_name=data.merchant_name, amount=data.amount, txn_date=txn_date_obj, payment_mode=data.payment_mode, payment_type=data.payment_type, category_id=data.category_id, bank_name=None, upi_transaction_id=None)
     await apply_rules_to_single_transaction(db, new_txn)
     db.add(new_txn)
     await db.delete(staging_item)

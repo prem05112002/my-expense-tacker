@@ -98,14 +98,14 @@ async def _fetch_cycle_transactions(
     """Fetches all transactions within a specific date range."""
     stmt = (
         select(
-            models.Transaction.amount, 
-            models.Transaction.txn_date, 
+            models.Transaction.amount,
+            models.Transaction.txn_date,
             models.Transaction.payment_type,
-            models.Transaction.merchant_name, 
-            models.Category.name.label("category_name"), 
-            models.Category.color.label("category_color")
+            models.Transaction.merchant_name,
+            func.coalesce(models.Category.name, 'Uncategorized').label("category_name"),
+            func.coalesce(models.Category.color, '#cbd5e1').label("category_color")
         )
-        .join(models.Category, models.Transaction.category_id == models.Category.id)
+        .outerjoin(models.Category, models.Transaction.category_id == models.Category.id)
         .where(models.Transaction.txn_date >= start_date, models.Transaction.txn_date <= end_date)
         .order_by(models.Transaction.txn_date.asc())
     )
@@ -121,11 +121,13 @@ async def _fetch_recent_transactions(
     """Fetches the N most recent transactions for the dashboard list."""
     stmt = (
         select(
-            models.Transaction.id, models.Transaction.amount, models.Transaction.txn_date, 
-            models.Transaction.payment_type, models.Transaction.merchant_name, models.Transaction.payment_mode, 
-            models.Transaction.bank_name, models.Category.name.label("category_name"), models.Category.color.label("category_color")
+            models.Transaction.id, models.Transaction.amount, models.Transaction.txn_date,
+            models.Transaction.payment_type, models.Transaction.merchant_name, models.Transaction.payment_mode,
+            models.Transaction.bank_name,
+            func.coalesce(models.Category.name, 'Uncategorized').label("category_name"),
+            func.coalesce(models.Category.color, '#cbd5e1').label("category_color")
         )
-        .join(models.Category, models.Transaction.category_id == models.Category.id)
+        .outerjoin(models.Category, models.Transaction.category_id == models.Category.id)
         .where(models.Transaction.txn_date >= start_date, models.Transaction.txn_date <= end_date)
         .order_by(models.Transaction.txn_date.desc()).limit(limit)
     )

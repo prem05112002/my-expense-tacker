@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy import text
 import os
+import re
 
 DB_USER = os.getenv("DB_USER")
 DB_PASS = os.getenv("DB_PASS")
@@ -23,8 +24,10 @@ Base = declarative_base()
 
 
 def _safe_schema_name(user_id: str) -> str:
-    """Convert a Clerk user_id like 'user_2abc123' into a valid schema name."""
-    return "u_" + user_id.replace("-", "_")
+    schema = "u_" + user_id.replace("-", "_")
+    if not re.fullmatch(r"u_[a-z0-9_]+", schema):
+        raise ValueError(f"Invalid schema name derived from user_id: {schema!r}")
+    return schema
 
 
 async def get_db_for_user(user_id: str):

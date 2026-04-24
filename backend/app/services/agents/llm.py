@@ -116,7 +116,7 @@ async def call_gemini_api(
     allowed, status = _check_rate_limit()
     if not allowed:
         logger.warning(f"[LLM] Rate limit exceeded: {status}")
-        return f"Rate limit exceeded: {status.get('error', 'Try again later.')}"
+        return None
 
     logger.debug(f"[LLM] Making API call (rate limit status: {status})")
 
@@ -166,26 +166,20 @@ async def call_gemini_api(
         except Exception:
             error_detail = e.response.text[:200] if e.response.text else ""
         logger.error(f"[LLM] HTTP error: {e.response.status_code} - {error_detail}")
-        return f"API error: {e.response.status_code} - {error_detail}"
+        return None
     except Exception as e:
         logger.exception(f"[LLM] Exception during API call: {e}")
-        return f"Error calling LLM: {str(e)}"
+        return None
 
 
 def is_valid_llm_response(response: Optional[str]) -> bool:
     """Check if LLM response is valid and usable."""
     if not response:
         return False
-    # Check for error prefixes
-    error_prefixes = ("API error:", "Error calling LLM:", "Rate limit exceeded:")
-    if response.startswith(error_prefixes):
-        return False
-    # Check for dict string representation (indicates fallback failure)
     if response.startswith("{") and response.endswith("}"):
         try:
             import json
             json.loads(response)
-            # Valid JSON is actually OK for structured responses
             return True
         except json.JSONDecodeError:
             return False
@@ -216,12 +210,6 @@ Type: unknown"""
     response = await call_gemini_api(prompt)
     if not response:
         return None, None, "No response from LLM. Check if GEMINI_API_KEY is set in environment variables"
-
-    # Check if response is an error message from the API
-    error_prefixes = ["API error:", "Error calling LLM:", "Rate limit exceeded:"]
-    for prefix in error_prefixes:
-        if response.startswith(prefix):
-            return None, None, response
 
     product = None
     price = None

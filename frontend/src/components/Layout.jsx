@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Menu } from 'lucide-react';
 import Sidebar from './Sidebar';
 
-const Layout = ({ children }) => {
+const Layout = ({ children, session }) => {
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
     const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
@@ -10,7 +10,7 @@ const Layout = ({ children }) => {
 
     return (
         <div className="flex min-h-screen bg-[#0a0a0a] text-slate-200 font-sans">
-            <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} />
+            <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} session={session} />
 
             {/* Main content area */}
             <div className="flex-1 lg:ml-64 ml-0 flex flex-col">

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from .routers import transactions, dashboard, categories, staging, rules, subscription, trends, chatbot, sync, goals, provision, gmail_setup
+from .routers import transactions, dashboard, categories, staging, rules, trends, chatbot, sync, goals, provision, gmail_setup
 
 
 @asynccontextmanager
@@ -18,6 +18,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://my-expense-tacker.vercel.app",
+        "http://localhost:5173",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -30,7 +31,6 @@ app.include_router(transactions.router)
 app.include_router(categories.router)
 app.include_router(staging.router)
 app.include_router(rules.router)
-app.include_router(subscription.router)
 app.include_router(trends.router)
 app.include_router(chatbot.router)
 app.include_router(sync.router)
