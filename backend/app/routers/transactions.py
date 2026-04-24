@@ -15,7 +15,7 @@ async def get_db(user_id: str = Depends(get_current_user_id)):
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
 
-@router.get("/", response_model=schemas.PaginatedResponse)
+@router.get("", response_model=schemas.PaginatedResponse)
 async def read_transactions(
     page: int = 1,
     limit: int = 15,

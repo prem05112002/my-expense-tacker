@@ -12,7 +12,7 @@ async def get_db(user_id: str = Depends(get_current_user_id)):
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 # ✅ CHANGE: Add 'offset' parameter here so the backend accepts the dropdown value
-@router.get("/", response_model=schemas.FinancialHealthStats)
+@router.get("", response_model=schemas.FinancialHealthStats)
 async def get_dashboard_stats(
     offset: int = Query(0, description="Cycle offset (0=current, 1=last month)"), 
     db: AsyncSession = Depends(get_db)

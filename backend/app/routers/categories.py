@@ -16,12 +16,12 @@ async def get_db(user_id: str = Depends(get_current_user_id)):
 
 router = APIRouter(prefix="/categories", tags=["Categories"])
 
-@router.get("/", response_model=List[schemas.CategoryOut])
+@router.get("", response_model=List[schemas.CategoryOut])
 async def get_categories(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(models.Category).order_by(models.Category.name))
     return result.scalars().all()
 
-@router.post("/", response_model=schemas.CategoryOut)
+@router.post("", response_model=schemas.CategoryOut)
 async def create_category(req: schemas.CategoryCreate, db: AsyncSession = Depends(get_db)):
     # 1. Check for duplicates
     existing = await db.execute(select(models.Category).where(models.Category.name == req.name))

@@ -12,7 +12,7 @@ async def get_db(user_id: str = Depends(get_current_user_id)):
 
 router = APIRouter(prefix="/staging", tags=["staging"])
 
-@router.get("/", response_model=List[schemas.StagingTransactionOut])
+@router.get("", response_model=List[schemas.StagingTransactionOut])
 async def get_items(db: AsyncSession = Depends(get_db)):
     return await services.get_staging_transactions(db)
 

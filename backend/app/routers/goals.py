@@ -17,13 +17,13 @@ async def get_db(user_id: str = Depends(get_current_user_id)):
 router = APIRouter(prefix="/goals", tags=["Goals"])
 
 
-@router.get("/", response_model=List[GoalWithProgress])
+@router.get("", response_model=List[GoalWithProgress])
 async def get_goals(db: AsyncSession = Depends(get_db)):
     """Get all active goals with their current progress."""
     return await goals_service.get_all_goals_with_progress(db)
 
 
-@router.post("/", response_model=GoalOut)
+@router.post("", response_model=GoalOut)
 async def create_goal(goal_data: GoalCreate, db: AsyncSession = Depends(get_db)):
     """Create a new spending goal for a category."""
     goal = await goals_service.create_goal(db, goal_data)

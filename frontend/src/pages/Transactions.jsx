@@ -190,7 +190,7 @@ const Transactions = () => {
         if (existing) return existing.id;
 
         try {
-            const res = await api.post('/categories/', { name: categoryName, is_income: false });
+            const res = await api.post('/categories', { name: categoryName, is_income: false });
             const newCategory = res.data;
             setCategories(prev => [...prev, newCategory]);
             return newCategory.id;
@@ -306,7 +306,7 @@ const Transactions = () => {
 
     const handleConfirmRule = async () => {
         try {
-            await api.post('/rules/', {
+            await api.post('/rules', {
                 pattern: ruleData.pattern,
                 new_merchant_name: ruleData.new_name,
                 category_id: ruleData.category_id,

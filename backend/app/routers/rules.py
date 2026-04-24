@@ -32,11 +32,11 @@ async def preview_rule(
         ) for t in results
     ]
 
-@router.post("/", response_model=schemas.RuleOut)
+@router.post("", response_model=schemas.RuleOut)
 async def create_rule(rule: schemas.RuleCreate, db: AsyncSession = Depends(get_db)):
     return await services.create_rule(db, rule)
 
-@router.get("/", response_model=List[schemas.RuleOut])
+@router.get("", response_model=List[schemas.RuleOut])
 async def get_rules(db: AsyncSession = Depends(get_db)):
     return await services.get_all_rules(db)
 

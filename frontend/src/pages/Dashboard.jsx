@@ -73,7 +73,7 @@ const Dashboard = () => {
     const fetchStats = async () => {
         try {
             setLoading(true);
-            const res = await api.get(`/dashboard/?offset=${cycleOffset}`);
+            const res = await api.get(`/dashboard?offset=${cycleOffset}`);
             setStats(res.data);
         } catch (error) {
             console.error("Error fetching dashboard data", error);
@@ -85,7 +85,7 @@ const Dashboard = () => {
     // Refresh stats without showing loading skeleton (preserves chat state)
     const refreshStats = async () => {
         try {
-            const res = await api.get(`/dashboard/?offset=${cycleOffset}`);
+            const res = await api.get(`/dashboard?offset=${cycleOffset}`);
             setStats(res.data);
         } catch (error) {
             console.error("Error refreshing dashboard data", error);

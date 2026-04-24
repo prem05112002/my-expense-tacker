@@ -77,8 +77,8 @@ const Profile = () => {
             try {
                 const [setRes, ruleRes, catRes, gmailRes] = await Promise.all([
                     api.get('/dashboard/settings'),
-                    api.get('/rules/'),
-                    api.get('/categories/'),
+                    api.get('/rules'),
+                    api.get('/categories'),
                     api.get('/gmail-setup/status'),
                 ]);
                 const parseList = (val) => Array.isArray(val) ? val : [];
