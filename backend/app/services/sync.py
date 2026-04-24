@@ -3,10 +3,9 @@ from datetime import datetime
 from enum import Enum
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..crypto import decrypt
-from ..database import _safe_schema_name
+from ..database import AsyncSessionLocal, _safe_schema_name
 from ..etl.pipeline import run_pipeline
 
 
@@ -46,11 +45,13 @@ def get_sync_status(user_id: str) -> dict:
     }
 
 
-async def run_email_sync(user_id: str, db: AsyncSession) -> dict:
+async def run_email_sync(user_id: str) -> dict:
     """
     Trigger an email sync for a specific user.
-    Retrieves their IMAP credentials from user_settings, then runs the
-    pipeline in a thread pool to avoid blocking the async event loop.
+    Opens a short-lived DB session only to fetch IMAP credentials, then
+    immediately releases the connection before running the multi-minute
+    ETL pipeline in a thread pool. This prevents Neon from killing the
+    idle asyncpg connection mid-request.
     """
     state = _sync_states.get(user_id, _default_state())
 
@@ -59,12 +60,14 @@ async def run_email_sync(user_id: str, db: AsyncSession) -> dict:
 
     schema = _safe_schema_name(user_id)
 
-    # Retrieve IMAP credentials from the user's schema
-    # (db session already has search_path set to this schema via get_db_for_user)
-    result = await db.execute(
-        text("SELECT imap_user, imap_pass_enc, imap_configured FROM user_settings LIMIT 1")
-    )
-    row = result.fetchone()
+    # Fetch credentials, then release the DB connection before the long ETL run.
+    async with AsyncSessionLocal() as db:
+        await db.execute(text(f"SET search_path = {schema}"))
+        result = await db.execute(
+            text("SELECT imap_user, imap_pass_enc, imap_configured FROM user_settings LIMIT 1")
+        )
+        row = result.fetchone()
+        await db.rollback()  # return connection to pool now, not after ETL
 
     if not row or not row.imap_configured:
         return {
@@ -88,7 +91,7 @@ async def run_email_sync(user_id: str, db: AsyncSession) -> dict:
         "started_at": datetime.now(),
     }
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         result = await loop.run_in_executor(
             None,
