@@ -14,7 +14,7 @@ class TransactionBase(BaseModel):
 class TransactionOut(BaseModel):
     id: int
     amount: float
-    txn_date: date
+    txn_date: Optional[date] = None
     payment_type: str
     merchant_name: str
     category_name: str
