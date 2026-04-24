@@ -76,9 +76,9 @@ const Sidebar = ({ isOpen, onClose, session }) => {
                 </div>
 
                 {/* Greeting */}
-                <div className="mb-8 px-2">
+                <div className="mb-8 px-2 min-w-0">
                     <div className="text-slate-400 text-xs uppercase font-bold tracking-wider mb-1">Welcome</div>
-                    <h2 className="text-2xl font-semibold text-white">Hi, {displayName}</h2>
+                    <h2 className="text-lg font-semibold text-white truncate" title={displayName}>Hi, {displayName}</h2>
                 </div>
 
                 {/* Main Menu */}
